@@ -9,7 +9,7 @@ library(ggplot2)
 
 # backend code
 countries <- unlist(st_read("www/GADM_adm1.gpkg",
-  query = "select COUNTRY from 'GADM_adm1'", quite = TRUE)[[1]] |>
+  query = "select COUNTRY from 'GADM_adm1'", quiet = TRUE)[[1]] |>
   unique())
 pop <- rast("www/AfriPop-total.tiff")
 
@@ -32,8 +32,7 @@ ui <- fluidPage(
               `actions-box` = TRUE,
               `live-search` = TRUE),
             multiple = TRUE)
-            ),
-
+          ),
           sliderInput("pop_range", "Population Range:",
             min = 1, max = 200000, # minmax(pop)[2],
             value = c(0, 50000)),
@@ -47,6 +46,9 @@ ui <- fluidPage(
             ),
             tabPanel("Variable Maps",
               plotOutput("variable_plot")
+            ),
+            tabPanel("Summary Table",
+              tableOutput("init_Table")
             ),
           )
         )
@@ -79,14 +81,14 @@ server <- function(input, output, session) {
     if (length(input$Country) == 1) {
       st_read("www/GADM_adm1.gpkg",
         query = paste("select * from 'GADM_adm1' where COUNTRY = ",
-          paste0("'", input$Country, "'")))
+          paste0("'", input$Country, "'")), quiet = TRUE)
     } else if (length(input$Country) > 1) {
       st_read("www/GADM_adm1.gpkg",
         query = paste("select * from 'GADM_adm1' where COUNTRY in",
           paste0("(",
             paste(paste0("'", input$Country, "'"), collapse = ", "),
             ")")
-        )
+        ),  quiet = TRUE
       )
     }
   })
@@ -94,96 +96,111 @@ server <- function(input, output, session) {
     if (length(input$Country) == 1) {
       admn_1 <- unique(region_selection()$NAME_1)
       updatePickerInput(session = session, inputId = "Admin", choices = admn_1,
-        selected = admn_1)
+        selected = NULL)
     }
   })
-  
+
   output$map <- renderLeaflet({
     leaflet() |>
-      addTiles()
+      addTiles() |>
+      addPolygons(data = region_selection(), 
+        weight = .6, fillColor = "grey10", color = 'black') |>
+      addPolygons(data = region_selection(), group = 'ADM1',
+        weight = .6, fillColor = "grey10", color = 'black', 
+        fillOpacity = 0) |>
+      setView(lng = 20, lat = -6, zoom = 3)
   })
-  admn_region_select <- reactive({
+  adm_region_select <- reactive({
     req(input$Admin)
     region_selection()[region_selection()$NAME_1 %in% input$Admin, ]
   })
+
   observe({
-    if (length(input$Admin) > 0) {
-      leafletProxy("map") |>
-        clearShapes() |>
-        addPolygons(data = admn_region_select(),
-         fillColor = "red",
-          weight = .5, fillOpacity = 0.2)
+    req(input$Admin)
+    leafletProxy("map") |>
+      clearGroup(group = "ADM1") |>
+      addPolygons(data = adm_region_select(), group = "ADM1",
+        color = "blue", weight = .7, fillOpacity = 0.2)
+  })
+
+  final_region <- reactive({
+    if (isTruthy(input$Admin)) {
+      adm_region_select()
     } else {
-      leafletProxy("map") |>
-        clearShapes() |>
-        addPolygons(data = region_selection(),
-         fillColor = "transparent",
-          weight = .5, fillOpacity = 0.2)
+      region_selection()
     }
   })
 
   pop_mask <- eventReactive(input$crop, {
-    req(region_selection())
-    crop(pop, region_selection()) |>
-      clamp(lower = input$pop_range[1], upper = input$pop_range[2],
-        values = FALSE)
-  })
+    req(final_region())
+    #if (isTruthy(input$Admin)) {
 
+    #   crop(pop, adm_region_select(), mask = TRUE) |>
+    #     clamp(lower = input$pop_range[1], upper = input$pop_range[2],
+    #           values = FALSE)
+    # } else {
+    crop(pop, final_region(), mask = TRUE) |>
+      clamp(lower = input$pop_range[1], upper = input$pop_range[2],
+              values = FALSE)
+    # }
+  })
 
   cropped_rasters <- eventReactive(input$crop, {
     rast("www/Gender_Equity_hotspot_unmasked.tif") |>
-      crop(region_selection(), mask = TRUE) |>
+      crop(final_region(), mask = TRUE) |>
       crop(pop_mask(), mask = TRUE)
   })
 
   region_filled <- reactive({
     req(cropped_rasters())
-    extracted_vals <- exact_extract(cropped_rasters(), region_selection(),
+    extracted_var <- exact_extract(cropped_rasters(), final_region(),
       c("mean", "stdev"))
-    cbind(region_selection(), extracted_vals) |>
+    extracted_var$pop <- exact_extract(pop, final_region(), fun = "sum")
+    cbind(final_region(), extracted_var) |>
       st_as_sf()
   })
+  
+  output$init_Table <- renderTable(st_drop_geometry(region_filled()))
 
-   output$variable_plot <- renderPlot({
+  output$variable_plot <- renderPlot({
     req(cropped_rasters())
-     plot(cropped_rasters())
-   })
+    plot(cropped_rasters())
+  })
 
-   leaflet_rast <- reactive({
+  leaflet_rast <- reactive({ # Leaflet issues with spatrasters on cran version
     req(cropped_rasters())
     cropped_rasters() |>
       raster::raster()
   })
 
 
-  observe({
-    leaf_rast <- leaflet_rast()
-        pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"),
-          values(leaf_rast), na.color = "transparent")
+  observeEvent(input$crop, {
+    pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"),
+      values(leaflet_rast()), na.color = "transparent")
     leafletProxy("map") |>
       clearShapes() |>
       clearImages() |>
       clearControls() |>
-      addRasterImage(leaf_rast, colors = pal, opacity = 0.8) |>
+      addRasterImage(leaflet_rast(), colors = pal, opacity = 0.8) |>
       addLegend(position = "bottomright", pal = pal,
-       values = values(leaf_rast),
+       values = values(leaflet_rast()),
       title = "Gender Equity") |>
       addPolygons(data = region_filled(), fillColor = "transparent",
         color = "black", weight = .5,
         popup = ~ paste0(
-          "ADM1: ", NAME_1,
-          "<br>Mean: ", mean,
-          "<br>Stdev: ", stdev)
+          "Region: ", NAME_1,
+          "<br>Mean Equality: ", mean,
+          "<br>Stdev: ", stdev,
+          "<br>Population: ", pop)
       )
   })
-
 
 
   # Bivariate Mapping
   output$bivar_map <- renderLeaflet({
     leaflet() |>
       addTiles() |>
-      addPolygons(data = region_selection())
+      addPolygons(data = final_region())
   })
   output$bivar_legend <- renderPlot({
     bivar_pal <- c("#d3d3d3", "#97c5c5", "#52b6b6", "#cd9b88",
