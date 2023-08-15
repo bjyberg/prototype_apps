@@ -97,6 +97,31 @@ server <- function(input, output, session) {
         selected = admn_1)
     }
   })
+  
+  output$map <- renderLeaflet({
+    leaflet() |>
+      addTiles()
+  })
+  admn_region_select <- reactive({
+    req(input$Admin)
+    region_selection()[region_selection()$NAME_1 %in% input$Admin, ]
+  })
+  observe({
+    if (length(input$Admin) > 0) {
+      leafletProxy("map") |>
+        clearShapes() |>
+        addPolygons(data = admn_region_select(),
+         fillColor = "red",
+          weight = .5, fillOpacity = 0.2)
+    } else {
+      leafletProxy("map") |>
+        clearShapes() |>
+        addPolygons(data = region_selection(),
+         fillColor = "transparent",
+          weight = .5, fillOpacity = 0.2)
+    }
+  })
+
   pop_mask <- eventReactive(input$crop, {
     req(region_selection())
     crop(pop, region_selection()) |>
@@ -130,12 +155,6 @@ server <- function(input, output, session) {
       raster::raster()
   })
 
-    output$map <- renderLeaflet({
-      leaflet() |>
-        addTiles() |>
-        #addRasterImage(leaflet_rast(), opacity = 0.8) |>
-        addPolygons(data = region_selection())
-    })
 
   observe({
     leaf_rast <- leaflet_rast()
