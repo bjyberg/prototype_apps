@@ -5,11 +5,13 @@ library(terra)
 library(sf)
 library(exactextractr)
 library(dplyr)
+library(ggplot2)
 
 # backend code
 countries <- unlist(st_read("www/GADM_adm1.gpkg",
   query = "select COUNTRY from 'GADM_adm1'", quite = TRUE)[[1]] |>
   unique())
+pop <- rast("www/AfriPop-total.tiff")
 
 # UI
 ui <- fluidPage(
@@ -24,6 +26,9 @@ ui <- fluidPage(
               `live-search` = TRUE),
             multiple = TRUE),
           # virtualSelectInput("Admin", "Customer", choices = NULL),
+          sliderInput("pop_range", "Population Range:",
+            min = 1, max = 200000, # minmax(pop)[2],
+            value = c(0, 50000)),
           hr(),
           actionButton(inputId = "crop", label = "Crop")
         ),
@@ -38,9 +43,27 @@ ui <- fluidPage(
           )
         )
       ),
-      tabPanel("Bivariate Mapping", # I think this can be done by having colours be the attribute and then have legend in the
-        verbatimTextOutput("summary")
-))))
+    ),
+    tabPanel("Bivariate Mapping",
+      sidebarLayout(
+        sidebarPanel(
+          pickerInput("bivar_x", "Select X Variable", choices = NULL),
+          pickerInput("bivar_y", "Select Y Variable", choices = NULL)
+        ),
+        mainPanel(
+          leafletOutput("bivar_map"),
+          absolutePanel(id = "bivar_leg", class = "panel panel-default",
+            fixed = TRUE, draggable = TRUE, top = 40, left = "auto",
+            right = 20, bottom = "auto", width = 200, height = "auto",
+            style = "opacity: 0.8;",
+            h2("Legend"),
+            plotOutput("bivar_legend", height = 200),
+          )
+        )
+      )
+    )
+  )
+)
 
 server <- function(input, output, session) {
   region_selection <- reactive({
@@ -59,9 +82,18 @@ server <- function(input, output, session) {
       )
     }
   })
+  pop_mask <- eventReactive(input$crop, {
+    req(region_selection())
+    crop(pop, region_selection()) |>
+      clamp(lower = input$pop_range[1], upper = input$pop_range[2],
+        values = FALSE)
+  })
+
+
   cropped_rasters <- eventReactive(input$crop, {
     rast("www/Gender_Equity_hotspot_unmasked.tif") |>
-      crop(region_selection(), mask = TRUE)
+      crop(region_selection(), mask = TRUE) |>
+      crop(pop_mask(), mask = TRUE)
   })
 
   region_filled <- reactive({
@@ -96,6 +128,8 @@ server <- function(input, output, session) {
           values(leaf_rast), na.color = "transparent")
     leafletProxy("map") |>
       clearShapes() |>
+      clearImages() |>
+      clearControls() |>
       addRasterImage(leaf_rast, colors = pal, opacity = 0.8) |>
       addLegend(position = "bottomright", pal = pal,
        values = values(leaf_rast),
@@ -103,6 +137,40 @@ server <- function(input, output, session) {
       addPolygons(data = region_filled(), fillColor = "transparent",
         color = "black", weight = .5,
         popup = ~ paste0("Mean: ", mean, "<br>Stdev: ", stdev))
+  })
+
+
+
+  # Bivariate Mapping
+  output$bivar_map <- renderLeaflet({
+    leaflet() |>
+      addTiles() |>
+      addPolygons(data = region_selection())
+  })
+  output$bivar_legend <- renderPlot({
+    bivar_pal <- c("#d3d3d3", "#97c5c5", "#52b6b6", "#cd9b88",
+      "#92917f", "#4f8575", "#c55a33", "#8d5430", "#3f3f33")
+    legend_df <- data.frame(suitability = rep(c(1:3), 3),
+      adpative = rep(1:3, each = 3),
+      fill_col = bivar_pal)
+
+    ggplot(legend_df) +
+      geom_tile(mapping = aes(
+        x = suitability,
+        y = adpative,
+        fill = fill_col)) +
+      scale_fill_identity() +
+      # labs(x = paste(clean_name, "Hazard →"),
+      #   y = "Adaptive Capacity →") +
+      labs(x = paste("Climate Hazard →"),
+        y = "Adaptive Capacity →") +
+      theme_void() +
+      theme(
+        axis.title = element_text(
+          size = 18,
+        ),
+        axis.title.y = element_text(angle = 90)) +
+      coord_fixed()
   })
 
 }
