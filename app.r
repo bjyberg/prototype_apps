@@ -25,7 +25,15 @@ ui <- fluidPage(
               `actions-box` = TRUE,
               `live-search` = TRUE),
             multiple = TRUE),
-          # virtualSelectInput("Admin", "Customer", choices = NULL),
+            conditionalPanel(
+              condition = "input.Country.length == 1",
+              pickerInput("Admin", "Admin Region", choices = NULL,
+               options = list(
+              `actions-box` = TRUE,
+              `live-search` = TRUE),
+            multiple = TRUE)
+            ),
+
           sliderInput("pop_range", "Population Range:",
             min = 1, max = 200000, # minmax(pop)[2],
             value = c(0, 50000)),
@@ -82,6 +90,13 @@ server <- function(input, output, session) {
       )
     }
   })
+  observeEvent(region_selection(), {
+    if (length(input$Country) == 1) {
+      admn_1 <- unique(region_selection()$NAME_1)
+      updatePickerInput(session = session, inputId = "Admin", choices = admn_1,
+        selected = admn_1)
+    }
+  })
   pop_mask <- eventReactive(input$crop, {
     req(region_selection())
     crop(pop, region_selection()) |>
@@ -136,7 +151,11 @@ server <- function(input, output, session) {
       title = "Gender Equity") |>
       addPolygons(data = region_filled(), fillColor = "transparent",
         color = "black", weight = .5,
-        popup = ~ paste0("Mean: ", mean, "<br>Stdev: ", stdev))
+        popup = ~ paste0(
+          "ADM1: ", NAME_1,
+          "<br>Mean: ", mean,
+          "<br>Stdev: ", stdev)
+      )
   })
 
 
