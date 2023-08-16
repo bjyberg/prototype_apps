@@ -6,6 +6,7 @@ library(sf)
 library(exactextractr)
 library(dplyr)
 library(ggplot2)
+source('R/functions.r')
 
 # backend code
 countries <- unlist(st_read("www/GADM_adm1.gpkg",
@@ -34,7 +35,7 @@ ui <- fluidPage(
             multiple = TRUE)
           ),
           sliderInput("pop_range", "Population Range:",
-            min = 1, max = 200000, # minmax(pop)[2],
+            min = 0, max = 200000, # minmax(pop)[2],
             value = c(0, 50000)),
           hr(),
           actionButton(inputId = "crop", label = "Crop")
@@ -63,11 +64,11 @@ ui <- fluidPage(
         mainPanel(
           leafletOutput("bivar_map"),
           absolutePanel(id = "bivar_leg", class = "panel panel-default",
-            fixed = TRUE, draggable = TRUE, top = 40, left = "auto",
-            right = 20, bottom = "auto", width = 200, height = "auto",
+            fixed = TRUE, draggable = FALSE, top = 80, left = "auto",
+            right = 30, bottom = "auto", width = 100, height = "auto",
             style = "opacity: 0.8;",
             h2("Legend"),
-            plotOutput("bivar_legend", height = 200),
+            plotOutput("bivar_legend", height = 100),
           )
         )
       )
@@ -80,11 +81,12 @@ server <- function(input, output, session) {
     req(input$Country)
     if (length(input$Country) == 1) {
       st_read("www/GADM_adm1.gpkg",
-        query = paste("select * from 'GADM_adm1' where COUNTRY = ",
-          paste0("'", input$Country, "'")), quiet = TRUE)
+        query = paste("select COUNTRY, NAME_1, geom from 'GADM_adm1'",
+          "where COUNTRY = ", paste0("'", input$Country, "'")), quiet = TRUE)
     } else if (length(input$Country) > 1) {
       st_read("www/GADM_adm1.gpkg",
-        query = paste("select * from 'GADM_adm1' where COUNTRY in",
+        query = paste("select COUNTRY, NAME_1, geom from 'GADM_adm1'",
+          "where COUNTRY in",
           paste0("(",
             paste(paste0("'", input$Country, "'"), collapse = ", "),
             ")")
@@ -92,6 +94,7 @@ server <- function(input, output, session) {
       )
     }
   })
+  region_selection <- debounce(region_selection, 4000)
   observeEvent(region_selection(), {
     if (length(input$Country) == 1) {
       admn_1 <- unique(region_selection()$NAME_1)
@@ -133,15 +136,9 @@ server <- function(input, output, session) {
 
   pop_mask <- eventReactive(input$crop, {
     req(final_region())
-    #if (isTruthy(input$Admin)) {
-
-    #   crop(pop, adm_region_select(), mask = TRUE) |>
-    #     clamp(lower = input$pop_range[1], upper = input$pop_range[2],
-    #           values = FALSE)
-    # } else {
     crop(pop, final_region(), mask = TRUE) |>
       clamp(lower = input$pop_range[1], upper = input$pop_range[2],
-              values = FALSE)
+            values = FALSE)
     # }
   })
 
@@ -159,8 +156,10 @@ server <- function(input, output, session) {
     cbind(final_region(), extracted_var) |>
       st_as_sf()
   })
-  
-  output$init_Table <- renderTable(st_drop_geometry(region_filled()))
+
+  output$init_Table <- renderTable(
+    st_drop_geometry(region_filled())
+  )
 
   output$variable_plot <- renderPlot({
     req(cropped_rasters())
@@ -188,7 +187,8 @@ server <- function(input, output, session) {
       addPolygons(data = region_filled(), fillColor = "transparent",
         color = "black", weight = .5,
         popup = ~ paste0(
-          "Region: ", NAME_1,
+          "Country: ", COUNTRY,
+          "<br>Region: ", NAME_1,
           "<br>Mean Equality: ", mean,
           "<br>Stdev: ", stdev,
           "<br>Population: ", pop)
@@ -203,29 +203,8 @@ server <- function(input, output, session) {
       addPolygons(data = final_region())
   })
   output$bivar_legend <- renderPlot({
-    bivar_pal <- c("#d3d3d3", "#97c5c5", "#52b6b6", "#cd9b88",
-      "#92917f", "#4f8575", "#c55a33", "#8d5430", "#3f3f33")
-    legend_df <- data.frame(suitability = rep(c(1:3), 3),
-      adpative = rep(1:3, each = 3),
-      fill_col = bivar_pal)
-
-    ggplot(legend_df) +
-      geom_tile(mapping = aes(
-        x = suitability,
-        y = adpative,
-        fill = fill_col)) +
-      scale_fill_identity() +
-      # labs(x = paste(clean_name, "Hazard →"),
-      #   y = "Adaptive Capacity →") +
-      labs(x = paste("Climate Hazard →"),
-        y = "Adaptive Capacity →") +
-      theme_void() +
-      theme(
-        axis.title = element_text(
-          size = 18,
-        ),
-        axis.title.y = element_text(angle = 90)) +
-      coord_fixed()
+    req(final_region())
+    bivar_legend('x', 'y')
   })
 
 }
