@@ -9,9 +9,9 @@ library(ggplot2)
 source('R/functions.r')
 
 # backend code
-countries <- unlist(st_read("www/GADM_adm1.gpkg",
-  query = "select COUNTRY from 'GADM_adm1'", quiet = TRUE)[[1]] |>
-  unique())
+countries_df <- st_read("www/GADM_adm1.gpkg",
+  query = "select GID_0, NAME_0 from 'GADM_adm1'", quiet = TRUE) |>
+  unique()
 pop <- rast("www/AfriPop-total.tiff")
 
 # UI
@@ -20,8 +20,8 @@ ui <- fluidPage(
     tabPanel("Map",
       sidebarLayout(
         sidebarPanel(
-          pickerInput("Country", "Select Country", choices = countries,
-            selected = "Kenya",
+          pickerInput("Country", "Select Country", choices = countries_df$NAME_0,
+            selected = NULL,
             options = list(
               `actions-box` = TRUE,
               `live-search` = TRUE),
@@ -79,22 +79,27 @@ ui <- fluidPage(
 server <- function(input, output, session) {
   region_selection <- reactive({
     req(input$Country)
-    if (length(input$Country) == 1) {
-      st_read("www/GADM_adm1.gpkg",
-        query = paste("select COUNTRY, NAME_1, geom from 'GADM_adm1'",
-          "where COUNTRY = ", paste0("'", input$Country, "'")), quiet = TRUE)
-    } else if (length(input$Country) > 1) {
-      st_read("www/GADM_adm1.gpkg",
-        query = paste("select COUNTRY, NAME_1, geom from 'GADM_adm1'",
-          "where COUNTRY in",
-          paste0("(",
-            paste(paste0("'", input$Country, "'"), collapse = ", "),
-            ")")
-        ),  quiet = TRUE
-      )
-    }
+    gids <- countries_df$GID_0[match(input$Country, countries_df$NAME_0)]
+    st_read("www/GADM_adm1.gpkg",
+      query = paste("select GID_0, NAME_0, NAME_1, geom from 'GADM_adm1'",
+        "where GID_0 in",
+        paste0("(",
+          paste(paste0("'", gids, "'"), collapse = ", "),
+          ")")
+      ),  quiet = TRUE
+    )
   })
-  region_selection <- debounce(region_selection, 4000)
+  region_selection <- debounce(region_selection, 2000)
+  output$map <- renderLeaflet({
+    leaflet() |>
+      addTiles() |>
+        setView(lng = 20, lat = -6, zoom = 3) |>
+      addCircles(lng = 20, lat = -6, group = "ADM1", # added for group delete
+        fill = FALSE, weight = 0) |>
+      addCircles(lng = 20, lat = -6, group = "ADM0", fill = FALSE, weight = 0)
+
+  })
+
   observeEvent(region_selection(), {
     if (length(input$Country) == 1) {
       admn_1 <- unique(region_selection()$NAME_1)
@@ -103,16 +108,14 @@ server <- function(input, output, session) {
     }
   })
 
-  output$map <- renderLeaflet({
-    leaflet() |>
-      addTiles() |>
-      addPolygons(data = region_selection(), 
-        weight = .6, fillColor = "grey10", color = 'black') |>
-      addPolygons(data = region_selection(), group = 'ADM1',
-        weight = .6, fillColor = "grey10", color = 'black', 
-        fillOpacity = 0) |>
-      setView(lng = 20, lat = -6, zoom = 3)
+  observe({
+    req(region_selection())
+    leafletProxy("map") |>
+      clearGroup(group = "ADM0") |>
+      addPolygons(data = region_selection(), weight = .6,
+        fillColor = "grey10", color = "black", group = "ADM0")
   })
+  
   adm_region_select <- reactive({
     req(input$Admin)
     region_selection()[region_selection()$NAME_1 %in% input$Admin, ]
@@ -187,7 +190,7 @@ server <- function(input, output, session) {
       addPolygons(data = region_filled(), fillColor = "transparent",
         color = "black", weight = .5,
         popup = ~ paste0(
-          "Country: ", COUNTRY,
+          "Country: ", NAME_0,
           "<br>Region: ", NAME_1,
           "<br>Mean Equality: ", mean,
           "<br>Stdev: ", stdev,
