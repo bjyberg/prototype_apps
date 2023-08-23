@@ -19,7 +19,7 @@ filters_df <- data.frame(
 )
 pop <- rast("www/AfriPop-total.tiff")
 
-AC_df <- data.frame(name = c("gender", "irrigation", "poverty"),
+AC_df <- data.frame(name = c("gender", "poverty", 'irrigation'),
   path = c("www/Gender_Equity_hotspot_unmasked.tif",
     "~/Biodiversity_International/Adaptation_Atlas/poverty/grdi_r1r3r2_filled.tif",
     "/home/bjyberg/Biodiversity_International/Adaptation_Atlas/irrigated_area.tiff"))
@@ -253,9 +253,7 @@ server <- function(input, output, session) {
 
   bivar_data <- reactive({
     req(bi_vars())
-    make_bivariate_data(bi_vars()) |>
-      raster::raster() |>
-      as.factor()
+    make_bivariate_data(bi_vars())
   })
   output$bivar_legend <- renderPlot({
     req(final_region(), bivar_data())
@@ -268,7 +266,7 @@ server <- function(input, output, session) {
       values(raster::raster(bi_vars()[[2]])), na.color = "transparent")
     leaflet() |>
       addTiles() |>
-      addRasterImage(bivar_data(), group = "Bivariate Map",
+      addRasterImage(raster::raster(bivar_data()), group = "Bivariate Map",
         color = colorFactor(palette = c("#d3d3d3", "#97c5c5", "#52b6b6", "#cd9b88",
           "#92917f", "#4f8575", "#c55a33", "#8d5430", "#3f3f33"),
         values(bivar_data()), na.color = "transparent", alpha = .8)) |>

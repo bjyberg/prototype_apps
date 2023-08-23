@@ -1,4 +1,7 @@
 library(ggplot2)
+library(terra)
+library(raster)
+library(sf)
 
 # bivariate functions
 bivar_legend <- function(x.title, y.title, n = 3, pal = NULL) {
@@ -68,13 +71,12 @@ bivar_legend <- function(x.title, y.title, n = 3, pal = NULL) {
     data[[2]] <- classify(data[[2]], y_quans, include.lowest = TRUE)
     levels(data) <- rep(list(data.frame(
       ID = c(0:(n - 1)),
-      group = c(1:n))),
-    2)
+      group = c(1:n))), 2)
     cat_rast <- concats(data[[1]], data[[2]])
-    #levels(cat_rast) <- data.frame(ID = 0:(n*n - 1), pal = pal)
-    #plot_colors <- pal[match(unname(unlist(unique(cat_rast))), pal)]
-    #plot(cat_rast, col = plot_colors)
-    return(cat_rast)
+     levels(cat_rast) <- data.frame(ID = 0:(n*n - 1), pal = pal)
+    plot_colors <- pal[match(unname(unlist(unique(cat_rast))), pal)]
+     plot(cat_rast, col = plot_colors)
+    return(c(data, cat_rast))
   }
 }
 
@@ -133,7 +135,7 @@ make_bivariate_data <- function(data, n = 3, x.val = NULL, y.val = NULL,
   }
   if (any(class(data) == "SpatRaster")) {
     if (nlyr(data) == 2) {
-      bivar_map <- .make_bivar_raster(data, n = n, pal = pal)
+      bivar_map <- .make_bivar_raster(data, n = n, pal = pal)[[3]]
     } else {
       stop("If using a Spat Raster, it must have 2 layers")
     }
@@ -161,3 +163,33 @@ make_bivariate_data <- function(data, n = 3, x.val = NULL, y.val = NULL,
 #   }
 # }
 
+
+# #test data 
+# data_1 <- rast("/home/bjyberg/Biodiversity_International/Adaptation_Atlas/poverty/grdi_r1r3r2_filled.tif")
+# data_2 <- rast("www/Gender_Equity_hotspot_unmasked.tif")
+# # data_3 <- rast("/home/bjyberg/Biodiversity_International/Adaptation_Atlas/irrigated_area.tiff")
+# data <- c(data_1, data_2)
+# data <- crop(data, ken, mask = T)
+# map <- make_bivariate_data(data)
+# unique(as.factor(raster::raster(map[[1]])[[1]]))
+# values(map)
+# plot(map)
+
+# writeRaster(map, "map.tif", overwrite = T)
+
+# levels(map)
+
+# colorFactor(palette = c("#d3d3d3", "#97c5c5", "#52b6b6", "#cd9b88",
+#           "#92917f", "#4f8575", "#c55a33", "#8d5430", "#3f3f33"),
+#         values(raster::raster(map)), na.color = "transparent", alpha = .8)
+
+# ken <-st_read("www/GADM_adm1.gpkg",
+#   query = paste("select GID_0, NAME_0, NAME_1, geom from 'GADM_adm1'",
+#     "where GID_0 == 'KEN'"
+#   ),  quiet = TRUE
+# )
+# leaflet() |>
+# addRasterImage(raster::raster(map), group = "Bivariate Map",
+#   color = colorFactor(palette = c("#d3d3d3", "#97c5c5", "#52b6b6", "#cd9b88",
+#           "#92917f", "#4f8575", "#c55a33", "#8d5430", "#3f3f33"),
+#   values(map), na.color = "transparent", alpha = .8))
