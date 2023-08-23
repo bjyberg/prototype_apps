@@ -6,13 +6,23 @@ library(sf)
 library(exactextractr)
 library(dplyr)
 library(ggplot2)
-source('R/functions.r')
+source("R/functions.r")
 
 # backend code
 countries_df <- st_read("www/GADM_adm1.gpkg",
   query = "select GID_0, NAME_0 from 'GADM_adm1'", quiet = TRUE) |>
   unique()
+
+filters_df <- data.frame(
+  name = c("population", "poverty"),
+  path = c("www/AfriPop-total.tiff", "~/Biodiversity_International/Adaptation_Atlas/poverty/grdi_r1r3r2_filled.tif")
+)
 pop <- rast("www/AfriPop-total.tiff")
+
+AC_df <- data.frame(name = c("gender", "irrigation", "poverty"),
+  path = c("www/Gender_Equity_hotspot_unmasked.tif",
+    "~/Biodiversity_International/Adaptation_Atlas/poverty/grdi_r1r3r2_filled.tif",
+    "/home/bjyberg/Biodiversity_International/Adaptation_Atlas/irrigated_area.tiff"))
 
 # UI
 ui <- fluidPage(
@@ -21,22 +31,30 @@ ui <- fluidPage(
       sidebarLayout(
         sidebarPanel(
           pickerInput("Country", "Select Country", choices = countries_df$NAME_0,
-            selected = NULL,
+            selected = "Kenya",
             options = list(
               `actions-box` = TRUE,
               `live-search` = TRUE),
             multiple = TRUE),
-            conditionalPanel(
-              condition = "input.Country.length == 1",
-              pickerInput("Admin", "Admin Region", choices = NULL,
-               options = list(
-              `actions-box` = TRUE,
-              `live-search` = TRUE),
-            multiple = TRUE)
+          conditionalPanel(
+            condition = "input.Country.length == 1",
+            pickerInput("Admin", "Admin Region", choices = NULL,
+              options = list(
+                `actions-box` = TRUE,
+                `live-search` = TRUE),
+              multiple = TRUE)
           ),
-          sliderInput("pop_range", "Population Range:",
-            min = 0, max = 200000, # minmax(pop)[2],
-            value = c(0, 50000)),
+          pickerInput("filterVar", "Filter by:", choices = filters_df$name,
+            selected = NULL),
+          conditionalPanel(
+            condition = paste0("input.filterVar == '", filters_df$name[1], "'"),
+            sliderInput("pop_range", paste(filters_df$name[1], "Range:"),
+              min = 0, max = 200000, # minmax(pop)[2],
+              value = c(0, 50000))
+          ),
+          # sliderInput("pop_range", "Population Range:",
+          #   min = 0, max = 200000, # minmax(pop)[2],
+          #   value = c(0, 50000)),
           hr(),
           actionButton(inputId = "crop", label = "Crop")
         ),
@@ -58,8 +76,18 @@ ui <- fluidPage(
     tabPanel("Bivariate Mapping",
       sidebarLayout(
         sidebarPanel(
-          pickerInput("bivar_x", "Select X Variable", choices = NULL),
-          pickerInput("bivar_y", "Select Y Variable", choices = NULL)
+          pickerInput("bivar_x", "Select X Variable", choices = AC_df$name,
+            selected = "gender"),
+          pickerInput("bivar_y", "Select Y Variable", choices = AC_df$name,
+            selected = "poverty"),
+          checkboxInput("addZ", "Plot a 3rd variable?", FALSE),
+          conditionalPanel(
+            condition = "input.addZ == 1",
+            pickerInput("bivar_z", "Select 3rd Variable", choices = AC_df$name,
+              selected = NULL)
+          ),
+          # hr(),
+          # verbatimTextOutput("Bivar_messages"),
         ),
         mainPanel(
           leafletOutput("bivar_map"),
@@ -67,7 +95,7 @@ ui <- fluidPage(
             fixed = TRUE, draggable = FALSE, top = 80, left = "auto",
             right = 30, bottom = "auto", width = 100, height = "auto",
             style = "opacity: 0.8;",
-            h2("Legend"),
+            # h2(),
             plotOutput("bivar_legend", height = 100),
           )
         )
@@ -89,15 +117,14 @@ server <- function(input, output, session) {
       ),  quiet = TRUE
     )
   })
-  region_selection <- debounce(region_selection, 2000)
+  region_selection <- debounce(region_selection, 1500)
   output$map <- renderLeaflet({
     leaflet() |>
       addTiles() |>
-        setView(lng = 20, lat = -6, zoom = 3) |>
+      setView(lng = 20, lat = -6, zoom = 3) |>
       addCircles(lng = 20, lat = -6, group = "ADM1", # added for group delete
         fill = FALSE, weight = 0) |>
       addCircles(lng = 20, lat = -6, group = "ADM0", fill = FALSE, weight = 0)
-
   })
 
   observeEvent(region_selection(), {
@@ -105,6 +132,8 @@ server <- function(input, output, session) {
       admn_1 <- unique(region_selection()$NAME_1)
       updatePickerInput(session = session, inputId = "Admin", choices = admn_1,
         selected = NULL)
+    } else {
+      updatePickerInput(session = session, inputId = "Admin", choices = NULL)
     }
   })
 
@@ -115,7 +144,7 @@ server <- function(input, output, session) {
       addPolygons(data = region_selection(), weight = .6,
         fillColor = "grey10", color = "black", group = "ADM0")
   })
-  
+
   adm_region_select <- reactive({
     req(input$Admin)
     region_selection()[region_selection()$NAME_1 %in% input$Admin, ]
@@ -130,7 +159,9 @@ server <- function(input, output, session) {
   })
 
   final_region <- reactive({
-    if (isTruthy(input$Admin)) {
+    if (length(input$Country) > 1) {
+      region_selection()
+    } else if (isTruthy(input$Admin)) {
       adm_region_select()
     } else {
       region_selection()
@@ -141,8 +172,12 @@ server <- function(input, output, session) {
     req(final_region())
     crop(pop, final_region(), mask = TRUE) |>
       clamp(lower = input$pop_range[1], upper = input$pop_range[2],
-            values = FALSE)
-    # }
+        values = FALSE)
+  })
+  filter_rast <- eventReactive(input$crop, {
+    req(input$filter_var)
+    filter_paths <- filters_df$path[match(input$filter_var, filters_df$name)]
+    rast(filter_paths)
   })
 
   cropped_rasters <- eventReactive(input$crop, {
@@ -185,8 +220,8 @@ server <- function(input, output, session) {
       clearControls() |>
       addRasterImage(leaflet_rast(), colors = pal, opacity = 0.8) |>
       addLegend(position = "bottomright", pal = pal,
-       values = values(leaflet_rast()),
-      title = "Gender Equity") |>
+        values = values(leaflet_rast()),
+        title = "Gender Equity") |>
       addPolygons(data = region_filled(), fillColor = "transparent",
         color = "black", weight = .5,
         popup = ~ paste0(
@@ -200,15 +235,88 @@ server <- function(input, output, session) {
 
 
   # Bivariate Mapping
-  output$bivar_map <- renderLeaflet({
-    leaflet() |>
-      addTiles() |>
-      addPolygons(data = final_region())
-  })
-  output$bivar_legend <- renderPlot({
-    req(final_region())
-    bivar_legend('x', 'y')
+  output$Bivar_messages <- renderPrint({
+    req(input$bivar_x, input$bivar_y)
+    if (input$bivar_x == input$bivar_y) {
+      print("X and Y variables cannot be the same.")
+    }
   })
 
+  bi_vars <- reactive({
+    req(final_region(), input$bivar_x, input$bivar_y)
+    if (input$bivar_x != input$bivar_y) {
+      paths <- AC_df$path[match(c(input$bivar_x, input$bivar_y), AC_df$name)]
+      var_stack <- rast(paths) |>
+        crop(final_region(), mask = TRUE)
+    }
+  })
+
+  bivar_data <- reactive({
+    req(bi_vars())
+    make_bivariate_data(bi_vars()) |>
+      raster::raster() |>
+      as.factor()
+  })
+  output$bivar_legend <- renderPlot({
+    req(final_region(), bivar_data())
+    bivar_legend(input$bivar_x, input$bivar_y)
+  })
+  output$bivar_map <- renderLeaflet({
+    pal1 <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"),
+      values(raster::raster(bi_vars()[[1]])), na.color = "transparent")
+    pal2 <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"),
+      values(raster::raster(bi_vars()[[2]])), na.color = "transparent")
+    leaflet() |>
+      addTiles() |>
+      addRasterImage(bivar_data(), group = "Bivariate Map",
+        color = colorFactor(palette = c("#d3d3d3", "#97c5c5", "#52b6b6", "#cd9b88",
+          "#92917f", "#4f8575", "#c55a33", "#8d5430", "#3f3f33"),
+        values(bivar_data()), na.color = "transparent", alpha = .8)) |>
+      addRasterImage(raster::raster(bi_vars()[[1]]),
+        group = "X", opacity = 0.8, colors = pal1) |>
+      addLegend(position = "bottomleft", pal = pal1, group = "X",
+        values = values(raster::raster(bi_vars()[[1]]))) |>
+      addRasterImage(raster::raster(bi_vars()[[2]]),
+        group = "Y", opacity = 0.8, colors = pal2) |>
+      addLegend(position = "bottomleft", pal = pal2, group = "Y",
+        values = values(raster::raster(bi_vars()[[2]]))) |>
+      addLayersControl(
+        position = "bottomright",
+        overlayGroups = c("Bivariate Map", "X", "Y"),
+        options = layersControlOptions(collapsed = FALSE)) |>
+      hideGroup(c("X", "Y"))
+  })
+  z_dots <- reactive({
+    req(input$bivar_z, input$bivar_x, input$bivar_y)
+    path <- AC_df$path[match(c(input$bivar_z), AC_df$name)]
+    z_var <- rast(path) |>
+      crop(final_region(), mask = TRUE)
+    centers <- st_point_on_surface(final_region())
+    centers$z <- exact_extract(z_var, final_region(), "mean")
+    return(centers)
+  })
+  observe({
+    req(input$bivar_z, input$bivar_x, input$bivar_y)
+    if (isTRUE(input$addZ)) {
+      symbols <- leaflegend::makeSymbolsSize(
+        values = log(z_dots()$z + 1) * 10,
+        shape = "circle",
+        color = "#f0e446",
+        fillColor = "#f0e446",
+        opacity = .5,
+        baseSize = 10
+      )
+      leafletProxy("bivar_map") |>
+        clearMarkers() |>
+        clearControls() |>
+        addMarkers(data = z_dots(), icon = symbols, group = "z_group") |>
+        leaflegend::addLegendSize(shape = "circle", color = "black",
+          baseSize = 10, fillOpacity = .7,
+          values = log(z_dots()$z + 1) * 10,
+          orientation = "horizontal",
+          title = "z", position = "bottomleft", data = symbols,
+          group = "z_group")
+    }
+  })
 }
 shinyApp(ui, server)

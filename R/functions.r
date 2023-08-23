@@ -6,7 +6,7 @@ bivar_legend <- function(x.title, y.title, n = 3, pal = NULL) {
     pal <- c("#d3d3d3", "#97c5c5", "#52b6b6", "#cd9b88",
       "#92917f", "#4f8575", "#c55a33", "#8d5430", "#3f3f33")
   } else if (is.null(pal) & n != 3) {
-    stop("Provide a color palette. Default is only allowed for n = 3.")
+    stop("Provide a color palette. Default palette is only allowed for n = 3.")
   }
   legend_df <- data.frame(x.var = rep(c(1:3), 3),
     y.var = rep(1:3, each = 3),
@@ -40,7 +40,7 @@ bivar_legend <- function(x.title, y.title, n = 3, pal = NULL) {
       pal <- c("#d3d3d3", "#97c5c5", "#52b6b6", "#cd9b88",
         "#92917f", "#4f8575", "#c55a33", "#8d5430", "#3f3f33")
     } else {
-      Stop(paste("Default Palette is only allowed for n = 3.",
+      stop(paste("Default Palette is only allowed for n = 3.",
        "Provide a palette of", n*n, "colors."))
     }
   }
@@ -57,7 +57,7 @@ bivar_legend <- function(x.title, y.title, n = 3, pal = NULL) {
     }
     if (n_cats != length(unique(data[[2]]))) {
       print("Categorical is TRUE, but number of categories don't match.")
-      Stop("Rasters must be categorical and have same number of categories.")
+      stop("Rasters must be categorical and have same number of categories.")
     }
   } else {
     quan <- global(data, quantile,
@@ -84,7 +84,7 @@ bivar_legend <- function(x.title, y.title, n = 3, pal = NULL) {
       pal <- c("#d3d3d3", "#97c5c5", "#52b6b6", "#cd9b88",
         "#92917f", "#4f8575", "#c55a33", "#8d5430", "#3f3f33")
     } else {
-      Stop(paste("Default Palette is only allowed for n = 3.",
+      stop(paste("Default Palette is only allowed for n = 3.",
         "Provide a palette of", n * n, "colors."))
     }
   }
@@ -127,7 +127,7 @@ make_bivariate_data <- function(data, n = 3, x.val = NULL, y.val = NULL,
       pal <- c("#d3d3d3", "#97c5c5", "#52b6b6", "#cd9b88",
         "#92917f", "#4f8575", "#c55a33", "#8d5430", "#3f3f33")
     } else {
-      Stop(paste("Default Palette is only allowed for n = 3.",
+      stop(paste("Default Palette is only allowed for n = 3.",
         "Provide a palette of", n * n, "colors."))
     }
   }
@@ -135,7 +135,7 @@ make_bivariate_data <- function(data, n = 3, x.val = NULL, y.val = NULL,
     if (nlyr(data) == 2) {
       bivar_map <- .make_bivar_raster(data, n = n, pal = pal)
     } else {
-      Stop("If using a Spat Raster, it must have 2 layers")
+      stop("If using a Spat Raster, it must have 2 layers")
     }
   } else if (any(class(data) %in% c("SpatVector", "sf", "sfc"))) {
     if (is.null(x.val) | is.null(y.val)) {
@@ -147,7 +147,7 @@ make_bivariate_data <- function(data, n = 3, x.val = NULL, y.val = NULL,
     bivar_map <- .make_bivar_sf(data, n = n, pal = pal,
       x.val = x.val, y.val = y.val)
   } else {
-    Stop(paste("Data must be a SpatRaster, SpatVector, or sf. Found. ",
+    stop(paste("Data must be a SpatRaster, SpatVector, or sf. Found. ",
                class(data)))
   }
 }
@@ -160,3 +160,4 @@ make_bivariate_data <- function(data, n = 3, x.val = NULL, y.val = NULL,
 #       n = n)
 #   }
 # }
+
