@@ -13,16 +13,15 @@ countries_df <- st_read("www/GADM_adm1.gpkg",
   query = "select GID_0, NAME_0 from 'GADM_adm1'", quiet = TRUE) |>
   unique()
 
-filters_df <- data.frame(
+filters_df <- data.frame( # In half dev - need to complete
   name = c("population", "poverty"),
-  path = c("www/AfriPop-total.tiff", "~/Biodiversity_International/Adaptation_Atlas/poverty/grdi_r1r3r2_filled.tif")
+  path = c("www/AfriPop-total.tiff", "www/grdi_r1r3r2_filled.tif")
 )
 pop <- rast("www/AfriPop-total.tiff")
 
-AC_df <- data.frame(name = c("gender", "poverty", 'irrigation'),
-  path = c("www/Gender_Equity_hotspot_unmasked.tif",
-    "~/Biodiversity_International/Adaptation_Atlas/poverty/grdi_r1r3r2_filled.tif",
-    "/home/bjyberg/Biodiversity_International/Adaptation_Atlas/irrigated_area.tiff"))
+layers <- read.csv("www/file_dict.csv")
+ac_layers <- layers[layers$group == "ad_cap", ]
+hazard_layers <- layers[layers$group == "hazard", ]
 
 # UI
 ui <- fluidPage(
@@ -30,12 +29,14 @@ ui <- fluidPage(
     tabPanel("Map",
       sidebarLayout(
         sidebarPanel(
-          pickerInput("Country", "Select Country", choices = countries_df$NAME_0,
+          pickerInput("Country", "Select Country",
+            choices = countries_df$NAME_0,
             selected = "Kenya",
             options = list(
               `actions-box` = TRUE,
               `live-search` = TRUE),
-            multiple = TRUE),
+            multiple = TRUE
+          ),
           conditionalPanel(
             condition = "input.Country.length == 1",
             pickerInput("Admin", "Admin Region", choices = NULL,
@@ -43,6 +44,12 @@ ui <- fluidPage(
                 `actions-box` = TRUE,
                 `live-search` = TRUE),
               multiple = TRUE)
+          ),
+          pickerInput("AC_dim", "Select AC Dimension",
+            choices = AC_df$name,
+            selected = AC_df$name[2],
+            options = list(`actions-box` = TRUE),
+            multiple = TRUE
           ),
           pickerInput("filterVar", "Filter by:", choices = filters_df$name,
             selected = NULL),
@@ -174,6 +181,7 @@ server <- function(input, output, session) {
       clamp(lower = input$pop_range[1], upper = input$pop_range[2],
         values = FALSE)
   })
+
   filter_rast <- eventReactive(input$crop, {
     req(input$filter_var)
     filter_paths <- filters_df$path[match(input$filter_var, filters_df$name)]
@@ -181,17 +189,37 @@ server <- function(input, output, session) {
   })
 
   cropped_rasters <- eventReactive(input$crop, {
-    rast("www/Gender_Equity_hotspot_unmasked.tif") |>
+    paths <- AC_df$path[match(input$AC_dim, AC_df$name)]
+    ac_names <- AC_df$name[match(input$AC_dim, AC_df$name)]
+    ac_rast <- rast(paths) |>
       crop(final_region(), mask = TRUE) |>
       crop(pop_mask(), mask = TRUE)
+    names(ac_rast) <- ac_names
   })
 
   region_filled <- reactive({
     req(cropped_rasters())
-    extracted_var <- exact_extract(cropped_rasters(), final_region(),
-      c("mean", "stdev"))
-    extracted_var$pop <- exact_extract(pop, final_region(), fun = "sum")
-    cbind(final_region(), extracted_var) |>
+    ac_names <- names(cropped_rasters())
+    extract_fn <- AC_df[match(ac_names, AC_df$name), "fn"]
+    extracted <- list()
+    if ("mean" %in% extract_fn) {
+      mean_rasts <- cropped_rasters()[[match("mean", extract_fn)]]
+      means <- exact_extract(mean_rasts, final_region(),
+        c("mean", "stdev"), colname_fun = function(fun_name, values) {
+          paste(values, fun_name, sep = "_")
+        })
+      extracted <- append(extracted, means)
+    }
+    if ("sum" %in% extract_fn) {
+      sum_rasts <- cropped_rasters()[[match("sum", extract_fn)]]
+      sums <- exact_extract(sum_rasts, final_region(), "sum",
+        colname_fun = function(fun_name, values) {
+          paste(values, fun_name, sep = "_")
+        })
+      extracted <- append(extracted, sums)
+    }
+    extracted$pop <- exact_extract(pop, final_region(), fun = "sum")
+    cbind(final_region(), as.data.frame(extracted)) |>
       st_as_sf()
   })
 
@@ -211,27 +239,27 @@ server <- function(input, output, session) {
   })
 
 
-  observeEvent(input$crop, {
-    pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"),
-      values(leaflet_rast()), na.color = "transparent")
-    leafletProxy("map") |>
-      clearShapes() |>
-      clearImages() |>
-      clearControls() |>
-      addRasterImage(leaflet_rast(), colors = pal, opacity = 0.8) |>
-      addLegend(position = "bottomright", pal = pal,
-        values = values(leaflet_rast()),
-        title = "Gender Equity") |>
-      addPolygons(data = region_filled(), fillColor = "transparent",
-        color = "black", weight = .5,
-        popup = ~ paste0(
-          "Country: ", NAME_0,
-          "<br>Region: ", NAME_1,
-          "<br>Mean Equality: ", mean,
-          "<br>Stdev: ", stdev,
-          "<br>Population: ", pop)
-      )
-  })
+  # observeEvent(input$crop, {
+  #   pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"),
+  #     values(leaflet_rast()), na.color = "transparent")
+  #   leafletProxy("map") |>
+  #     clearShapes() |>
+  #     clearImages() |>
+  #     clearControls() |>
+  #     addRasterImage(leaflet_rast(), colors = pal, opacity = 0.8) |>
+  #     addLegend(position = "bottomright", pal = pal,
+  #       values = values(leaflet_rast()),
+  #       title = "Gender Equity") |>
+  #     addPolygons(data = region_filled(), fillColor = "transparent",
+  #       color = "black", weight = .5 #,
+  #       # popup = ~ paste0(
+  #       #   "Country: ", NAME_0,
+  #       #   "<br>Region: ", NAME_1,
+  #       #   "<br>Mean Equality: ", mean,
+  #       #   "<br>Stdev: ", stdev,
+  #       #   "<br>Population: ", pop)
+  #     )
+  # })
 
 
   # Bivariate Mapping
@@ -264,12 +292,15 @@ server <- function(input, output, session) {
       values(raster::raster(bi_vars()[[1]])), na.color = "transparent")
     pal2 <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"),
       values(raster::raster(bi_vars()[[2]])), na.color = "transparent")
+    bi_pal <- c("#d3d3d3", "#97c5c5", "#52b6b6", "#cd9b88",
+      "#92917f", "#4f8575", "#c55a33", "#8d5430", "#3f3f33")
+    # the palette needs transposed to match the legend
+    bi_pal <- as.vector(t(matrix(bi_pal, nrow = 3, ncol = 3)))
     leaflet() |>
       addTiles() |>
       addRasterImage(raster::raster(bivar_data()), group = "Bivariate Map",
-        color = colorFactor(palette = c("#d3d3d3", "#97c5c5", "#52b6b6", "#cd9b88",
-          "#92917f", "#4f8575", "#c55a33", "#8d5430", "#3f3f33"),
-        values(bivar_data()), na.color = "transparent", alpha = .8)) |>
+        color = colorFactor(palette = bi_pal, values(bivar_data()),
+          na.color = "transparent", alpha = .8)) |>
       addRasterImage(raster::raster(bi_vars()[[1]]),
         group = "X", opacity = 0.8, colors = pal1) |>
       addLegend(position = "bottomleft", pal = pal1, group = "X",

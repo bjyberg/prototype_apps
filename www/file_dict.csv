@@ -1,0 +1,5 @@
+group,name,path ,fn
+ad_cap,gender,www/Gender_Equity_hotspot_unmasked.tif,mean
+ad_cap,poverty,www/grdi_r1r3r2_filled.tif,mean
+ad_cap,irrigation,www/irrigated_area.tiff,sum
+ad_cap,conflict,www/afri_conflict_jit.tif,mean

@@ -73,9 +73,11 @@ bivar_legend <- function(x.title, y.title, n = 3, pal = NULL) {
       ID = c(0:(n - 1)),
       group = c(1:n))), 2)
     cat_rast <- concats(data[[1]], data[[2]])
-     levels(cat_rast) <- data.frame(ID = 0:(n*n - 1), pal = pal)
-    plot_colors <- pal[match(unname(unlist(unique(cat_rast))), pal)]
-     plot(cat_rast, col = plot_colors)
+    # concats vals = 1_1, 1_2 not 1_1, 2_1 as legend, so need to transpose pal
+    pal_shuffle <- t(matrix(pal, nrow = n, ncol = n))
+    # levels(cat_rast) <- data.frame(ID = 0:(n*n - 1), pal = pal)
+    plot_colors <- as.vector(pal_shuffle)
+    plot(cat_rast, col = plot_colors)
     return(c(data, cat_rast))
   }
 }
@@ -166,11 +168,14 @@ make_bivariate_data <- function(data, n = 3, x.val = NULL, y.val = NULL,
 
 # #test data 
 # data_1 <- rast("/home/bjyberg/Biodiversity_International/Adaptation_Atlas/poverty/grdi_r1r3r2_filled.tif")
-# data_2 <- rast("www/Gender_Equity_hotspot_unmasked.tif")
+# data_2 <- rast("/home/bjyberg/Biodiversity_International/Adaptation_Atlas/Conflict/output/afri_conflict_jit.tif")
 # # data_3 <- rast("/home/bjyberg/Biodiversity_International/Adaptation_Atlas/irrigated_area.tiff")
 # data <- c(data_1, data_2)
+# plot(crop(data_2, ken, mask = T), main = 'con')
 # data <- crop(data, ken, mask = T)
 # map <- make_bivariate_data(data)
+# plot(map)
+# bivar_legend(y.title = 'conflict', x.title = 'pov', 3)
 # unique(as.factor(raster::raster(map[[1]])[[1]]))
 # values(map)
 # plot(map)
