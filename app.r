@@ -9,19 +9,24 @@ library(ggplot2)
 source("R/functions.r")
 
 # backend code
-countries_df <- st_read("www/GADM_adm1.gpkg",
-  query = "select GID_0, NAME_0 from 'GADM_adm1'", quiet = TRUE) |>
+# countries_df <- st_read("www/GADM_adm1.gpkg",
+#   query = "select GID_0, NAME_0 from 'GADM_adm1'", quiet = TRUE) |>
+#   unique()
+countries_df <- st_read('www/aggregated_data_adm1.gpkg', 
+  query = "select GID_0, NAME_0 from 'aggregated_data_adm1'", quiet = TRUE) |>
   unique()
 
-filters_df <- data.frame( # In half dev - need to complete
-  name = c("population", "poverty"),
-  path = c("www/AfriPop-total.tiff", "www/grdi_r1r3r2_filled.tif")
-)
+# filters_df <- data.frame( # In half dev - need to complete
+#   name = c("population", "poverty"),
+#   path = c("www/AfriPop-total.tiff", "www/grdi_r1r3r2_filled.tif")
+# )
+AC_df <- read.csv("www/file_dict.csv")
+
 pop <- rast("www/AfriPop-total.tiff")
 
-layers <- read.csv("www/file_dict.csv")
-ac_layers <- layers[layers$group == "ad_cap", ]
-hazard_layers <- layers[layers$group == "hazard", ]
+# layers <- read.csv("www/file_dict.csv")
+# ac_layers <- layers[layers$group == "ad_cap", ]
+# hazard_layers <- layers[layers$group == "hazard", ]
 
 # UI
 ui <- fluidPage(
@@ -51,14 +56,14 @@ ui <- fluidPage(
             options = list(`actions-box` = TRUE),
             multiple = TRUE
           ),
-          pickerInput("filterVar", "Filter by:", choices = filters_df$name,
-            selected = NULL),
-          conditionalPanel(
-            condition = paste0("input.filterVar == '", filters_df$name[1], "'"),
-            sliderInput("pop_range", paste(filters_df$name[1], "Range:"),
-              min = 0, max = 200000, # minmax(pop)[2],
-              value = c(0, 50000))
-          ),
+          # pickerInput("filterVar", "Filter by:", choices = filters_df$name,
+          #   selected = NULL),
+          # conditionalPanel(
+          #   condition = paste0("input.filterVar == '", filters_df$name[1], "'"),
+          #   sliderInput("pop_range", paste(filters_df$name[1], "Range:"),
+          #     min = 0, max = 200000, # minmax(pop)[2],
+          #     value = c(0, 50000))
+          # ),
           # sliderInput("pop_range", "Population Range:",
           #   min = 0, max = 200000, # minmax(pop)[2],
           #   value = c(0, 50000)),
@@ -68,7 +73,7 @@ ui <- fluidPage(
         mainPanel(
           tabsetPanel(type = "tabs",
             tabPanel("Interactive Map",
-              leafletOutput("map")
+              leafletOutput("map"),
             ),
             tabPanel("Variable Maps",
               plotOutput("variable_plot")
@@ -115,8 +120,9 @@ server <- function(input, output, session) {
   region_selection <- reactive({
     req(input$Country)
     gids <- countries_df$GID_0[match(input$Country, countries_df$NAME_0)]
-    st_read("www/GADM_adm1.gpkg",
-      query = paste("select GID_0, NAME_0, NAME_1, geom from 'GADM_adm1'",
+    st_read("www/aggregated_data_adm1.gpkg",
+      query = paste(
+        "select * from 'aggregated_data_adm1'",
         "where GID_0 in",
         paste0("(",
           paste(paste0("'", gids, "'"), collapse = ", "),
@@ -175,52 +181,56 @@ server <- function(input, output, session) {
     }
   })
 
-  pop_mask <- eventReactive(input$crop, {
-    req(final_region())
-    crop(pop, final_region(), mask = TRUE) |>
-      clamp(lower = input$pop_range[1], upper = input$pop_range[2],
-        values = FALSE)
-  })
+  # pop_mask <- eventReactive(input$crop, {
+  #   req(final_region())
+  #   crop(pop, final_region(), mask = TRUE) |>
+  #     clamp(lower = input$pop_range[1], upper = input$pop_range[2],
+  #       values = FALSE)
+  # })
 
-  filter_rast <- eventReactive(input$crop, {
-    req(input$filter_var)
-    filter_paths <- filters_df$path[match(input$filter_var, filters_df$name)]
-    rast(filter_paths)
-  })
+  # filter_rast <- eventReactive(input$crop, {
+  #   req(input$filter_var)
+  #   filter_paths <- filters_df$path[match(input$filter_var, filters_df$name)]
+  #   rast(filter_paths)
+  # })
 
   cropped_rasters <- eventReactive(input$crop, {
     paths <- AC_df$path[match(input$AC_dim, AC_df$name)]
     ac_names <- AC_df$name[match(input$AC_dim, AC_df$name)]
     ac_rast <- rast(paths) |>
-      crop(final_region(), mask = TRUE) |>
-      crop(pop_mask(), mask = TRUE)
+      crop(final_region(), mask = TRUE)
+    #  |>
+    # crop(pop_mask(), mask = TRUE)
     names(ac_rast) <- ac_names
+    return(ac_rast)
   })
 
   region_filled <- reactive({
-    req(cropped_rasters())
-    ac_names <- names(cropped_rasters())
-    extract_fn <- AC_df[match(ac_names, AC_df$name), "fn"]
-    extracted <- list()
-    if ("mean" %in% extract_fn) {
-      mean_rasts <- cropped_rasters()[[match("mean", extract_fn)]]
-      means <- exact_extract(mean_rasts, final_region(),
-        c("mean", "stdev"), colname_fun = function(fun_name, values) {
-          paste(values, fun_name, sep = "_")
-        })
-      extracted <- append(extracted, means)
-    }
-    if ("sum" %in% extract_fn) {
-      sum_rasts <- cropped_rasters()[[match("sum", extract_fn)]]
-      sums <- exact_extract(sum_rasts, final_region(), "sum",
-        colname_fun = function(fun_name, values) {
-          paste(values, fun_name, sep = "_")
-        })
-      extracted <- append(extracted, sums)
-    }
-    extracted$pop <- exact_extract(pop, final_region(), fun = "sum")
-    cbind(final_region(), as.data.frame(extracted)) |>
-      st_as_sf()
+    req(input$AC_dim)
+    col_clean_names <- gsub(".*\\.", "", names(final_region()))
+    usr_cols <- names(final_region()[input$AC_dim == col_clean_names])
+    return(final_region()[c("GID_0", "GID_1", usr_cols)])
+    # extract_fn <- AC_df[match(ac_names, AC_df$name), "fn"]
+    # extracted <- list()
+    # if ("mean" %in% extract_fn) {
+    #   mean_rasts <- cropped_rasters()[[match("mean", extract_fn)]]
+    #   means <- exact_extract(mean_rasts, final_region(),
+    #     c("mean", "stdev"), colname_fun = function(fun_name, values) {
+    #       paste(values, fun_name, sep = "_")
+    #     })
+    #   extracted <- append(extracted, means)
+    # }
+    # if ("sum" %in% extract_fn) {
+    #   sum_rasts <- cropped_rasters()[[match("sum", extract_fn)]]
+    #   sums <- exact_extract(sum_rasts, final_region(), "sum",
+    #     colname_fun = function(fun_name, values) {
+    #       paste(values, fun_name, sep = "_")
+    #     })
+    #   extracted <- append(extracted, sums)
+    # }
+    # extracted$pop <- exact_extract(pop, final_region(), fun = "sum")
+    # cbind(final_region(), as.data.frame(extracted)) |>
+    #   st_as_sf()
   })
 
   output$init_Table <- renderTable(
@@ -232,34 +242,28 @@ server <- function(input, output, session) {
     plot(cropped_rasters())
   })
 
-  leaflet_rast <- reactive({ # Leaflet issues with spatrasters on cran version
-    req(cropped_rasters())
-    cropped_rasters() |>
-      raster::raster()
+  observeEvent(input$crop, {
+    pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"),
+      values(cropped_rasters()), na.color = "transparent")
+    
+    leafletProxy("map") |>
+      clearShapes() |>
+      clearImages() |>
+      clearControls() |>
+      addRasterImage(cropped_rasters(), colors = pal, opacity = 0.8) |>
+      addLegend(position = "bottomright", pal = pal,
+        values = values(cropped_rasters()),
+        title = paste(names(cropped_rasters()))) |>
+      addPolygons(data = region_filled(), fillColor = "transparent",
+        color = "black", weight = .5 #,
+        # popup = ~ paste0(
+        #   "Country: ", NAME_0,
+        #   "<br>Region: ", NAME_1,
+        #   "<br>Mean Equality: ", mean,
+        #   "<br>Stdev: ", stdev,
+        #   "<br>Population: ", pop)
+      )
   })
-
-
-  # observeEvent(input$crop, {
-  #   pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"),
-  #     values(leaflet_rast()), na.color = "transparent")
-  #   leafletProxy("map") |>
-  #     clearShapes() |>
-  #     clearImages() |>
-  #     clearControls() |>
-  #     addRasterImage(leaflet_rast(), colors = pal, opacity = 0.8) |>
-  #     addLegend(position = "bottomright", pal = pal,
-  #       values = values(leaflet_rast()),
-  #       title = "Gender Equity") |>
-  #     addPolygons(data = region_filled(), fillColor = "transparent",
-  #       color = "black", weight = .5 #,
-  #       # popup = ~ paste0(
-  #       #   "Country: ", NAME_0,
-  #       #   "<br>Region: ", NAME_1,
-  #       #   "<br>Mean Equality: ", mean,
-  #       #   "<br>Stdev: ", stdev,
-  #       #   "<br>Population: ", pop)
-  #     )
-  # })
 
 
   # Bivariate Mapping

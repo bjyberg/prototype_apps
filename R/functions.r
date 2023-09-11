@@ -158,7 +158,7 @@ make_bivariate_data <- function(data, n = 3, x.val = NULL, y.val = NULL,
 
 # bivariate_plotter <- function(data, x.val, y.val, n = 3) {
 #   make_bivariate_data(data)
-  
+
 #     bivar_legend(x.title = deparse(substitute(x.val)),
 #       y.title = deparse(substitute(y.val)),
 #       n = n)
@@ -166,7 +166,7 @@ make_bivariate_data <- function(data, n = 3, x.val = NULL, y.val = NULL,
 # }
 
 
-# #test data 
+# #test data
 # data_1 <- rast("/home/bjyberg/Biodiversity_International/Adaptation_Atlas/poverty/grdi_r1r3r2_filled.tif")
 # data_2 <- rast("/home/bjyberg/Biodiversity_International/Adaptation_Atlas/Conflict/output/afri_conflict_jit.tif")
 # # data_3 <- rast("/home/bjyberg/Biodiversity_International/Adaptation_Atlas/irrigated_area.tiff")
@@ -198,3 +198,41 @@ make_bivariate_data <- function(data, n = 3, x.val = NULL, y.val = NULL,
 #   color = colorFactor(palette = c("#d3d3d3", "#97c5c5", "#52b6b6", "#cd9b88",
 #           "#92917f", "#4f8575", "#c55a33", "#8d5430", "#3f3f33"),
 #   values(map), na.color = "transparent", alpha = .8))
+
+
+indexer <- function(data, weights = NULL, fun = c("mean", "geometric_mean")) {
+  # checks
+  if (any(class(data) %in% c("sf", "sfc", "SpatVector"))) {
+    data <- vect(data)
+  } else if (any(class(data) %in% c("SpatRaster", "stars"))) {
+    data <- rast(data)
+  } else {
+    stop(paste("Data must be a SpatRaster, SpatVector, 'stars', or sf. Found:",
+      class(data)))
+  }
+  match.arg(fun)
+  # apply weights
+  if (is.null(weights)) {
+    weights  <- 1
+    weighted_data <- data * weights
+  } else if (length(weights) == 1) {
+    weights <- weights
+    weighted_data <- data * weights
+  } else if (length(weights) == length(data)) { # may need changed depending dtype
+    weights <- weights
+    weighted_data <- data
+    for (i in 1:length(data)) {
+      weighted_data[[i]] <- weighted_data[[i]] * weights[i]
+    }
+  } else {
+    stop("Weights must be length of 1 or same length as data")
+  }
+  # make index
+  if (fun == "geometric_mean") {
+    index <- prod(weighted_data, na.rm = TRUE)^(1 / length(weighted_data))
+  } 
+  if (fun == "mean") {
+    index <- mean(weighted_data, na.rm = TRUE)
+  }
+  return(index)
+}
