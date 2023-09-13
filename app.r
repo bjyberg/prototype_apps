@@ -51,11 +51,21 @@ ui <- fluidPage(
                 `live-search` = TRUE),
               multiple = TRUE)
           ),
-          pickerInput("AC_dim", "Select AC Dimension",
-            choices = AC_df$name,
-            selected = AC_df$name[2],
-            options = list(`actions-box` = TRUE),
-            multiple = TRUE
+          pickerInput("ac_weight", "Adaptive Capacity Index Weighting",
+            choices = names(ac_weightings[-1])
+          ),
+          checkboxInput("explore_dims",
+              label = "Explore Individual Adaptive Capacity Dimensions?",
+              FALSE
+          ),
+          conditionalPanel(
+            condition = "input.explore_dims == 1",
+            pickerInput("AC_dim", "Select AC Dimension",
+              choices = AC_df$name,
+              selected = AC_df$name[2],
+              options = list(`actions-box` = TRUE),
+              multiple = TRUE
+            ),
           ),
           # pickerInput("filterVar", "Filter by:", choices = filters_df$name,
           #   selected = NULL),
@@ -87,17 +97,17 @@ ui <- fluidPage(
         )
       ),
     ),
-    tabPanel("Adaptive Capacity Index",
-      sidebarLayout(
-        sidebarPanel(
-          pickerInput("ac_weight", "Weighting Scenario",
-            choices = names(ac_weightings[-1]))
-        ),
-        mainPanel(
-          plotOutput("ac_index_plot")
-        )
-      )
-    ),
+    # tabPanel("Adaptive Capacity Index",
+    #   sidebarLayout(
+    #     sidebarPanel(
+    #       pickerInput("ac_weight", "Weighting Scenario",
+    #         choices = names(ac_weightings[-1]))
+    #     ),
+    #     mainPanel(
+    #       plotOutput("ac_index_plot")
+    #     )
+    #   )
+    # ),
     tabPanel("Bivariate Mapping",
       sidebarLayout(
         sidebarPanel(
@@ -143,15 +153,7 @@ server <- function(input, output, session) {
       ),  quiet = TRUE
     )
   })
-  region_selection <- debounce(region_selection, 1500)
-  output$map <- renderLeaflet({
-    leaflet() |>
-      addTiles() |>
-      setView(lng = 20, lat = -6, zoom = 3) |>
-      addCircles(lng = 20, lat = -6, group = "ADM1", # added for group delete
-        fill = FALSE, weight = 0) |>
-      addCircles(lng = 20, lat = -6, group = "ADM0", fill = FALSE, weight = 0)
-  })
+  region_selection <- debounce(region_selection, 2000)
 
   observeEvent(region_selection(), {
     if (length(input$Country) == 1) {
@@ -161,6 +163,32 @@ server <- function(input, output, session) {
     } else {
       updatePickerInput(session = session, inputId = "Admin", choices = NULL)
     }
+  })
+
+  ac_index <- reactive({
+    req(input$ac_weight)
+    weights <- ac_weightings[[input$ac_weight]]
+    ac_stack <- rast(AC_df$path) |>
+      crop(region_selection(), mask = TRUE)
+    names(ac_stack) <- AC_df$name
+    minmax(ac_stack, compute = TRUE)
+    ac_index <- indexer(ac_stack, weights, fun = "mean")
+    return(ac_index)
+    #indexer(ac_stack, ac_weightings[[2]], fun = "mean") |> plot()
+  })
+
+  output$map <- renderLeaflet({
+    leaflet() |>
+      addTiles() |>
+      addRasterImage(ac_index()) |>
+      #setView(lng = 20, lat = -6, zoom = 3) |>
+      addCircles(lng = 20, lat = -6, group = "ADM1", # added for group delete
+        fill = FALSE, weight = 0) |>
+      addCircles(lng = 20, lat = -6, group = "ADM0", fill = FALSE, weight = 0)
+  })
+
+  output$ac_index_plot <- renderPlot({
+    plot(ac_index())
   })
 
   observe({
@@ -216,19 +244,6 @@ server <- function(input, output, session) {
     # crop(pop_mask(), mask = TRUE)
     names(ac_rast) <- ac_names
     return(ac_rast)
-  })
-
-  ac_index <- reactive({
-    req(input$ac_weight)
-    weights <- ac_weightings[[input$ac_weight]]
-    ac_stack <- rast(AC_df$path)
-    names(ac_stack) <- AC_df$name
-    minmax(ac_stack, compute = TRUE)
-    indexer(ac_stack, weights, fun = "mean")
-  })
-
-  output$ac_index_plot <- renderPlot({
-    plot(ac_index())
   })
 
   region_filled <- reactive({
