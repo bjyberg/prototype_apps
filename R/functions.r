@@ -199,40 +199,43 @@ make_bivariate_data <- function(data, n = 3, x.val = NULL, y.val = NULL,
 #           "#92917f", "#4f8575", "#c55a33", "#8d5430", "#3f3f33"),
 #   values(map), na.color = "transparent", alpha = .8))
 
+normalize_rast <- function(x) {
+  mnmx <- minmax(x, compute = TRUE)
+  norm <- (x - mnmx[1, ]) / (mnmx[2, ] - mnmx[1, ])
+  return(norm)
+}
 
 indexer <- function(data, weights = NULL, fun = c("mean", "geometric_mean")) {
   # checks
-  if (any(class(data) %in% c("sf", "sfc", "SpatVector"))) {
+  if (any(class(data) %in% c("sf", "sfc"))) {
     data <- vect(data)
-  } else if (any(class(data) %in% c("SpatRaster", "stars"))) {
+  } else if (any(class(data) %in% c("stars"))) {
     data <- rast(data)
+  } else if (any(class(data) %in% c("SpatRaster", "SpatVector"))){
+    data <- data
   } else {
     stop(paste("Data must be a SpatRaster, SpatVector, 'stars', or sf. Found:",
       class(data)))
   }
   match.arg(fun)
   # apply weights
-  if (is.null(weights)) {
-    weights  <- 1
-    weighted_data <- data * weights
-  } else if (length(weights) == 1) {
-    weights <- weights
-    weighted_data <- data * weights
-  } else if (length(weights) == length(data)) { # may need changed depending dtype
-    weights <- weights
-    weighted_data <- data
-    for (i in 1:length(data)) {
-      weighted_data[[i]] <- weighted_data[[i]] * weights[i]
+  if (class(data) == "SpatRaster") {
+    data <- normalize_rast(data)
+    if (is.null(weights)) {
+      weights  <- 1
+    } else if (length(weights) == 1 | length(weights) == nlyr(data)) {
+      weights <- weights
+    } else {
+      stop("Weights must be length of 1 or same length as data")
     }
-  } else {
-    stop("Weights must be length of 1 or same length as data")
   }
   # make index
   if (fun == "geometric_mean") {
-    index <- prod(weighted_data, na.rm = TRUE)^(1 / length(weighted_data))
+    index <- prod(
+      (weighted_data^weights), na.rm = TRUE)^(1 / length(weighted_data))
   } 
   if (fun == "mean") {
-    index <- mean(weighted_data, na.rm = TRUE)
+    index <- mean((data * weights), na.rm = TRUE)
   }
   return(index)
 }

@@ -21,8 +21,9 @@ countries_df <- st_read('www/aggregated_data_adm1.gpkg',
 #   path = c("www/AfriPop-total.tiff", "www/grdi_r1r3r2_filled.tif")
 # )
 AC_df <- read.csv("www/file_dict.csv")
+ac_weightings <- read.csv("www/ac_weights.csv")
 
-pop <- rast("www/AfriPop-total.tiff")
+# pop <- rast("www/AfriPop-total.tiff")
 
 # layers <- read.csv("www/file_dict.csv")
 # ac_layers <- layers[layers$group == "ad_cap", ]
@@ -30,13 +31,13 @@ pop <- rast("www/AfriPop-total.tiff")
 
 # UI
 ui <- fluidPage(
-  navbarPage("Atlas",
+  navbarPage("Vulnerability Prototype",
     tabPanel("Map",
       sidebarLayout(
         sidebarPanel(
           pickerInput("Country", "Select Country",
             choices = countries_df$NAME_0,
-            selected = "Kenya",
+            selected = countries_df$NAME_0[5],
             options = list(
               `actions-box` = TRUE,
               `live-search` = TRUE),
@@ -74,6 +75,7 @@ ui <- fluidPage(
           tabsetPanel(type = "tabs",
             tabPanel("Interactive Map",
               leafletOutput("map"),
+              #tableOutput("init_Table")
             ),
             tabPanel("Variable Maps",
               plotOutput("variable_plot")
@@ -84,6 +86,17 @@ ui <- fluidPage(
           )
         )
       ),
+    ),
+    tabPanel("Adaptive Capacity Index",
+      sidebarLayout(
+        sidebarPanel(
+          pickerInput("ac_weight", "Weighting Scenario",
+            choices = names(ac_weightings[-1]))
+        ),
+        mainPanel(
+          plotOutput("ac_index_plot")
+        )
+      )
     ),
     tabPanel("Bivariate Mapping",
       sidebarLayout(
@@ -205,11 +218,24 @@ server <- function(input, output, session) {
     return(ac_rast)
   })
 
+  ac_index <- reactive({
+    req(input$ac_weight)
+    weights <- ac_weightings[[input$ac_weight]]
+    ac_stack <- rast(AC_df$path)
+    names(ac_stack) <- AC_df$name
+    minmax(ac_stack, compute = TRUE)
+    indexer(ac_stack, weights, fun = "mean")
+  })
+
+  output$ac_index_plot <- renderPlot({
+    plot(ac_index())
+  })
+
   region_filled <- reactive({
     req(input$AC_dim)
     col_clean_names <- gsub(".*\\.", "", names(final_region()))
     usr_cols <- names(final_region()[input$AC_dim == col_clean_names])
-    return(final_region()[c("GID_0", "GID_1", usr_cols)])
+    return(final_region()[c("GID_0", "NAME_0", "NAME_1", usr_cols)])
     # extract_fn <- AC_df[match(ac_names, AC_df$name), "fn"]
     # extracted <- list()
     # if ("mean" %in% extract_fn) {
