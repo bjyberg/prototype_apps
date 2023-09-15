@@ -12,7 +12,7 @@ source("R/functions.r")
 # countries_df <- st_read("www/GADM_adm1.gpkg",
 #   query = "select GID_0, NAME_0 from 'GADM_adm1'", quiet = TRUE) |>
 #   unique()
-countries_df <- st_read('www/aggregated_data_adm1.gpkg', 
+countries_df <- st_read("www/aggregated_data_adm1.gpkg",
   query = "select GID_0, NAME_0 from 'aggregated_data_adm1'", quiet = TRUE) |>
   unique()
 
@@ -52,11 +52,11 @@ ui <- fluidPage(
               multiple = TRUE)
           ),
           pickerInput("ac_weight", "Adaptive Capacity Index Weighting",
-            choices = names(ac_weightings[-1])
+            choices = names(ac_weightings[-c(1, 2)])
           ),
           checkboxInput("explore_dims",
-              label = "Explore Individual Adaptive Capacity Dimensions?",
-              FALSE
+            label = "Explore Individual Adaptive Capacity Dimensions?",
+            FALSE
           ),
           conditionalPanel(
             condition = "input.explore_dims == 1",
@@ -85,7 +85,7 @@ ui <- fluidPage(
           tabsetPanel(type = "tabs",
             tabPanel("Interactive Map",
               leafletOutput("map"),
-              #tableOutput("init_Table")
+              # tableOutput("init_Table")
             ),
             tabPanel("Variable Maps",
               plotOutput("variable_plot")
@@ -101,7 +101,7 @@ ui <- fluidPage(
     #   sidebarLayout(
     #     sidebarPanel(
     #       pickerInput("ac_weight", "Weighting Scenario",
-    #         choices = names(ac_weightings[-1]))
+    #         choices = names(ac_weightings[-c(1,2)]))
     #     ),
     #     mainPanel(
     #       plotOutput("ac_index_plot")
@@ -143,15 +143,27 @@ server <- function(input, output, session) {
   region_selection <- reactive({
     req(input$Country)
     gids <- countries_df$GID_0[match(input$Country, countries_df$NAME_0)]
-    st_read("www/aggregated_data_adm1.gpkg",
-      query = paste(
-        "select * from 'aggregated_data_adm1'",
-        "where GID_0 in",
-        paste0("(",
-          paste(paste0("'", gids, "'"), collapse = ", "),
-          ")")
-      ),  quiet = TRUE
-    )
+    if (length(input$Country) == 1) {
+      st_read("www/aggregated_data_adm1.gpkg",
+        query = paste(
+          "select * from 'aggregated_data_adm1'",
+          "where GID_0 in",
+          paste0("(",
+            paste(paste0("'", gids, "'"), collapse = ", "),
+            ")")
+        ),  quiet = TRUE
+      )
+    } else if (length(input$Country) > 1) {
+        st_read("www/aggregated_data_adm0.gpkg",
+          query = paste(
+            "select * from 'aggregated_data_adm0'",
+            "where GID_0 in",
+            paste0("(",
+              paste(paste0("'", gids, "'"), collapse = ", "),
+              ")")
+          ),  quiet = TRUE
+        )
+    }
   })
   region_selection <- debounce(region_selection, 2000)
 
@@ -165,23 +177,46 @@ server <- function(input, output, session) {
     }
   })
 
+  adm_region_select <- reactive({
+    req(input$Admin)
+    region_selection()[region_selection()$NAME_1 %in% input$Admin, ]
+  })
+
+  final_region <- reactive({
+    if (length(input$Country) > 1) {
+      region_selection()
+    } else if (isTruthy(input$Admin)) {
+      adm_region_select()
+    } else {
+      region_selection()
+    }
+  })
+
   ac_index <- reactive({
     req(input$ac_weight)
     weights <- ac_weightings[[input$ac_weight]]
     ac_stack <- rast(AC_df$path) |>
-      crop(region_selection(), mask = TRUE)
+      crop(final_region(), mask = TRUE)
     names(ac_stack) <- AC_df$name
-    minmax(ac_stack, compute = TRUE)
+    # Round the pov layer atm to fix floating point errors
+    ac_stack[['poverty']] <- round(ac_stack[['poverty']], 10) # fix data instead
+    need_inv <- ac_weightings[ac_weightings$inverse, 1]
+    ac_stack[[need_inv]] <-  (
+      minmax(ac_stack[[need_inv]])[2, ]
+      - ac_stack[[need_inv]]
+        + minmax(ac_stack[[need_inv]])[1, ]
+    )
+    normalize_rast(ac_stack[[2]])
     ac_index <- indexer(ac_stack, weights, fun = "mean")
     return(ac_index)
-    #indexer(ac_stack, ac_weightings[[2]], fun = "mean") |> plot()
   })
 
   output$map <- renderLeaflet({
     leaflet() |>
       addTiles() |>
       addRasterImage(ac_index()) |>
-      #setView(lng = 20, lat = -6, zoom = 3) |>
+      # addLegend(values(ac_index())) |>
+      # setView(lng = 20, lat = -6, zoom = 3) |>
       addCircles(lng = 20, lat = -6, group = "ADM1", # added for group delete
         fill = FALSE, weight = 0) |>
       addCircles(lng = 20, lat = -6, group = "ADM0", fill = FALSE, weight = 0)
@@ -199,27 +234,12 @@ server <- function(input, output, session) {
         fillColor = "grey10", color = "black", group = "ADM0")
   })
 
-  adm_region_select <- reactive({
-    req(input$Admin)
-    region_selection()[region_selection()$NAME_1 %in% input$Admin, ]
-  })
-
   observe({
     req(input$Admin)
     leafletProxy("map") |>
       clearGroup(group = "ADM1") |>
       addPolygons(data = adm_region_select(), group = "ADM1",
         color = "blue", weight = .7, fillOpacity = 0.2)
-  })
-
-  final_region <- reactive({
-    if (length(input$Country) > 1) {
-      region_selection()
-    } else if (isTruthy(input$Admin)) {
-      adm_region_select()
-    } else {
-      region_selection()
-    }
   })
 
   # pop_mask <- eventReactive(input$crop, {
@@ -249,8 +269,12 @@ server <- function(input, output, session) {
   region_filled <- reactive({
     req(input$AC_dim)
     col_clean_names <- gsub(".*\\.", "", names(final_region()))
-    usr_cols <- names(final_region()[input$AC_dim == col_clean_names])
-    return(final_region()[c("GID_0", "NAME_0", "NAME_1", usr_cols)])
+    usr_cols <- names(final_region()[col_clean_names %in% input$AC_dim])
+    # Rough fix for missing name 1 if admin 0 is used
+    if ("NAME_1" %in% names(col_clean_names)) {
+      usr_cols <- c("NAME_1", usr_cols)
+    }
+    return(final_region()[c("GID_0", "NAME_0", usr_cols)])
     # extract_fn <- AC_df[match(ac_names, AC_df$name), "fn"]
     # extracted <- list()
     # if ("mean" %in% extract_fn) {
@@ -286,7 +310,7 @@ server <- function(input, output, session) {
   observeEvent(input$crop, {
     pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"),
       values(cropped_rasters()), na.color = "transparent")
-    
+
     leafletProxy("map") |>
       clearShapes() |>
       clearImages() |>
@@ -296,7 +320,7 @@ server <- function(input, output, session) {
         values = values(cropped_rasters()),
         title = paste(names(cropped_rasters()))) |>
       addPolygons(data = region_filled(), fillColor = "transparent",
-        color = "black", weight = .5 #,
+        color = "black", weight = .5 # ,
         # popup = ~ paste0(
         #   "Country: ", NAME_0,
         #   "<br>Region: ", NAME_1,
