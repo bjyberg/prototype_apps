@@ -6,6 +6,7 @@ library(sf)
 library(exactextractr)
 library(dplyr)
 library(ggplot2)
+library(DT)
 source("R/functions.r")
 
 # backend code
@@ -62,7 +63,7 @@ ui <- fluidPage(
             condition = "input.explore_dims == 1",
             pickerInput("AC_dim", "Select AC Dimension",
               choices = AC_df$name,
-              selected = AC_df$name[2],
+              selected = NULL,
               options = list(`actions-box` = TRUE),
               multiple = TRUE
             ),
@@ -79,7 +80,14 @@ ui <- fluidPage(
           #   min = 0, max = 200000, # minmax(pop)[2],
           #   value = c(0, 50000)),
           hr(),
-          actionButton(inputId = "crop", label = "Crop")
+          #actionButton(inputId = "crop", label = "Crop"),
+          downloadButton("download", "Download Data"),
+          radioButtons("downloadType", "Download Type",
+            choices = c("CSV" = ".csv",
+              "GeoTIFF" = ".tif",
+              "Geopackage" = ".gpkg",
+              "Shapefile" = ".shp"),
+          )
         ),
         mainPanel(
           tabsetPanel(type = "tabs",
@@ -91,7 +99,7 @@ ui <- fluidPage(
               plotOutput("variable_plot")
             ),
             tabPanel("Summary Table",
-              tableOutput("init_Table")
+              DTOutput("init_Table")
             ),
           )
         )
@@ -121,8 +129,8 @@ ui <- fluidPage(
             pickerInput("bivar_z", "Select 3rd Variable", choices = AC_df$name,
               selected = NULL)
           ),
-          # hr(),
-          # verbatimTextOutput("Bivar_messages"),
+          hr(),
+          downloadButton("download_bivar", "Download Bivariate analysis")
         ),
         mainPanel(
           leafletOutput("bivar_map"),
@@ -212,19 +220,21 @@ server <- function(input, output, session) {
   })
 
   output$map <- renderLeaflet({
+    req(ac_index(), final_region())
+    ac_pal <- colorNumeric("OrRd", values(ac_index()), na.color = "transparent")
     leaflet() |>
       addTiles() |>
-      addRasterImage(ac_index()) |>
-      # addLegend(values(ac_index())) |>
+      addRasterImage(ac_index(), colors = ac_pal) |>
+      addLegend(pal = ac_pal, values = values(ac_index())) |>
       # setView(lng = 20, lat = -6, zoom = 3) |>
       addCircles(lng = 20, lat = -6, group = "ADM1", # added for group delete
         fill = FALSE, weight = 0) |>
       addCircles(lng = 20, lat = -6, group = "ADM0", fill = FALSE, weight = 0)
   })
 
-  output$ac_index_plot <- renderPlot({
-    plot(ac_index())
-  })
+  # output$ac_index_plot <- renderPlot({
+  #   plot(ac_index())
+  # })
 
   observe({
     req(region_selection())
@@ -255,7 +265,8 @@ server <- function(input, output, session) {
   #   rast(filter_paths)
   # })
 
-  cropped_rasters <- eventReactive(input$crop, {
+  cropped_rasters <- reactive({
+    req(input$AC_dim)
     paths <- AC_df$path[match(input$AC_dim, AC_df$name)]
     ac_names <- AC_df$name[match(input$AC_dim, AC_df$name)]
     ac_rast <- rast(paths) |>
@@ -267,14 +278,20 @@ server <- function(input, output, session) {
   })
 
   region_filled <- reactive({
-    req(input$AC_dim)
-    col_clean_names <- gsub(".*\\.", "", names(final_region()))
-    usr_cols <- names(final_region()[col_clean_names %in% input$AC_dim])
-    # Rough fix for missing name 1 if admin 0 is used
-    if ("NAME_1" %in% names(col_clean_names)) {
-      usr_cols <- c("NAME_1", usr_cols)
+    req_cols <- c("GID_0", "NAME_0")
+    if ("NAME_1" %in% names(final_region())) {
+      req_cols <- c("NAME_1", req_cols)
     }
-    return(final_region()[c("GID_0", "NAME_0", usr_cols)])
+    if (isTruthy(input$AC_dim)) {
+      col_clean_names <- gsub(".*\\.", "", names(final_region()))
+      usr_cols <- names(final_region()[col_clean_names %in% input$AC_dim])
+      selected_region_data <- final_region()[c(req_cols, usr_cols)]
+    } else {
+      selected_region_data <- final_region()[req_cols]
+    }
+    selected_region_data$AC_index <- exact_extract(ac_index(), final_region(),
+      fun = "mean")
+    return(selected_region_data)
     # extract_fn <- AC_df[match(ac_names, AC_df$name), "fn"]
     # extracted <- list()
     # if ("mean" %in% extract_fn) {
@@ -298,7 +315,7 @@ server <- function(input, output, session) {
     #   st_as_sf()
   })
 
-  output$init_Table <- renderTable(
+  output$init_Table <- renderDT(
     st_drop_geometry(region_filled())
   )
 
@@ -307,7 +324,8 @@ server <- function(input, output, session) {
     plot(cropped_rasters())
   })
 
-  observeEvent(input$crop, {
+  observeEvent(input$AC_dim, {
+    req(input$AC_dim)
     pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"),
       values(cropped_rasters()), na.color = "transparent")
 
@@ -320,8 +338,8 @@ server <- function(input, output, session) {
         values = values(cropped_rasters()),
         title = paste(names(cropped_rasters()))) |>
       addPolygons(data = region_filled(), fillColor = "transparent",
-        color = "black", weight = .5 # ,
-        # popup = ~ paste0(
+        color = "black", weight = .5,
+         popup = region_filled()
         #   "Country: ", NAME_0,
         #   "<br>Region: ", NAME_1,
         #   "<br>Mean Equality: ", mean,
@@ -329,6 +347,29 @@ server <- function(input, output, session) {
         #   "<br>Population: ", pop)
       )
   })
+
+  output$download <- downloadHandler(
+    filename = function() {
+      paste0("Placeholder", input$downloadType)
+    },
+    content = function(file) {
+      if (input$downloadType == ".csv") {
+        st_drop_geometry(region_filled()) |>
+          data.frame() |>
+          write.csv(file)
+      } else if (input$downloadType == ".tif") {
+        if (isTruthy(input$AC_dim)) {
+          c(ac_index(), cropped_rasters()) |>
+            writeRaster(file, overwrite = TRUE)
+        }
+        writeRaster(ac_index(), file, overwrite = TRUE)
+      } else if (input$downloadType == ".gpkg") {
+        write_sf(region_filled(), file, append = FALSE)
+      } else if (input$downloadType == ".shp") {
+        write_sf(region_filled(), file, append = FALSE)
+      }
+    }
+  )
 
 
   # Bivariate Mapping
@@ -416,5 +457,13 @@ server <- function(input, output, session) {
           group = "z_group")
     }
   })
+  output$download_bivar <- downloadHandler(
+    filename = function() {
+      paste0('placeholder', '.tif')
+    },
+    content = function(file) {
+      writeRaster(bivar_data(), file, overwrite = TRUE)
+    }
+  )
 }
 shinyApp(ui, server)

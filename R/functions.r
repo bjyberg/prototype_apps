@@ -44,7 +44,7 @@ bivar_legend <- function(x.title, y.title, n = 3, pal = NULL) {
         "#92917f", "#4f8575", "#c55a33", "#8d5430", "#3f3f33")
     } else {
       stop(paste("Default Palette is only allowed for n = 3.",
-       "Provide a palette of", n*n, "colors."))
+       "Provide a palette of", n * n, "colors."))
     }
   }
   if (categorical) {
@@ -56,7 +56,7 @@ bivar_legend <- function(x.title, y.title, n = 3, pal = NULL) {
       n <- n_cats
     }
     if (n > 4) {
-      print("Too many categories. The map will be hard to read")
+      print("Too many categories. The map will be harder to read")
     }
     if (n_cats != length(unique(data[[2]]))) {
       print("Categorical is TRUE, but number of categories don't match.")
@@ -73,11 +73,11 @@ bivar_legend <- function(x.title, y.title, n = 3, pal = NULL) {
       ID = c(0:(n - 1)),
       group = c(1:n))), 2)
     cat_rast <- concats(data[[1]], data[[2]])
-    # concats vals = 1_1, 1_2 not 1_1, 2_1 as legend, so need to transpose pal
+    # concats vals is 1_1, 1_2 not 1_1, 2_1 as legend, so need to transpose pal
     pal_shuffle <- t(matrix(pal, nrow = n, ncol = n))
     # levels(cat_rast) <- data.frame(ID = 0:(n*n - 1), pal = pal)
-    plot_colors <- as.vector(pal_shuffle)
-    plot(cat_rast, col = plot_colors)
+    # plot_colors <- as.vector(pal_shuffle)
+    # plot(cat_rast, col = plot_colors)
     return(c(data, cat_rast))
   }
 }
