@@ -52,6 +52,8 @@ ui <- fluidPage(
                 `live-search` = TRUE),
               multiple = TRUE)
           ),
+          pickerInput("period", "Select Scenario",
+            choices = c("Current", "Projected")),
           pickerInput("ac_weight", "Adaptive Capacity Index Weighting",
             choices = names(ac_weightings[-c(1, 2)])
           ),
@@ -90,18 +92,25 @@ ui <- fluidPage(
           )
         ),
         mainPanel(
+          leafletOutput("map"),
           tabsetPanel(type = "tabs",
-            tabPanel("Interactive Map",
-              leafletOutput("map"),
-              # tableOutput("init_Table")
-            ),
-            tabPanel("Variable Maps",
-              plotOutput("variable_plot")
-            ),
             tabPanel("Summary Table",
-              DTOutput("init_Table")
-            ),
-          )
+              DTOutput("init_Table")),
+            tabPanel("Plots",
+              plotOutput("variable_plot"))
+          ),
+          # tabsetPanel(type = "tabs",
+          #   tabPanel("Interactive Map",
+          #     leafletOutput("map"),
+          #     # tableOutput("init_Table")
+          #   ),
+          #   tabPanel("Variable Maps",
+          #     plotOutput("variable_plot")
+          #   ),
+          #   tabPanel("Summary Table",
+          #     DTOutput("init_Table")
+          #   ),
+          # )
         )
       ),
     ),
@@ -234,7 +243,7 @@ server <- function(input, output, session) {
 
   # output$ac_index_plot <- renderPlot({
   #   plot(ac_index())
-  # })
+  # })z
 
   observe({
     req(region_selection())
@@ -316,7 +325,9 @@ server <- function(input, output, session) {
   })
 
   output$init_Table <- renderDT(
-    st_drop_geometry(region_filled())
+    st_drop_geometry(region_filled()),
+    options = list(paging = TRUE,
+                   pageLength = 5)
   )
 
   output$variable_plot <- renderPlot({
