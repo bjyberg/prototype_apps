@@ -22,6 +22,8 @@ countries_df <- st_read("www/aggregated_data_adm1.gpkg",
 #   path = c("www/AfriPop-total.tiff", "www/grdi_r1r3r2_filled.tif")
 # )
 AC_df <- read.csv("www/file_dict.csv")
+# AC_df <- read.csv("www/cloud_file_dict.csv")
+# AC_df$path <- paste0("/vsicurl/", AC_df$path)
 ac_weightings <- read.csv("www/ac_weights.csv")
 
 # pop <- rast("www/AfriPop-total.tiff")
@@ -97,7 +99,7 @@ ui <- fluidPage(
             tabPanel("Summary Table",
               DTOutput("init_Table")),
             tabPanel("Plots",
-              plotOutput("variable_plot"))
+              plotOutput("cor_plot"))
           ),
           # tabsetPanel(type = "tabs",
           #   tabPanel("Interactive Map",
@@ -278,12 +280,14 @@ server <- function(input, output, session) {
     req(input$AC_dim)
     paths <- AC_df$path[match(input$AC_dim, AC_df$name)]
     ac_names <- AC_df$name[match(input$AC_dim, AC_df$name)]
-    ac_rast <- rast(paths) |>
+    ac_dims <- rast(paths) |>
       crop(final_region(), mask = TRUE)
     #  |>
     # crop(pop_mask(), mask = TRUE)
-    names(ac_rast) <- ac_names
-    return(ac_rast)
+    names(ac_dims) <- ac_names
+    ac_stack <- c(ac_dims, ac_index())
+    names(ac_stack) <- c(names(ac_dims), "ac_index")
+    return(ac_stack)
   })
 
   region_filled <- reactive({
@@ -333,6 +337,35 @@ server <- function(input, output, session) {
   output$variable_plot <- renderPlot({
     req(cropped_rasters())
     plot(cropped_rasters())
+  })
+  output$cor_plot <- renderPlot({
+    req(cropped_rasters())
+    cor_mat <- layerCor(cropped_rasters(), "pearson", na.rm = T)[[1]] |>
+      as.data.frame()
+        # cor_mat <- layerCor(ac_dims, "pearson", na.rm = T)[[1]] |>
+        #   as.data.frame()
+      # row.names(cor_mat) <- names(ac_rast)
+      # names(cor_mat) <- names(ac_rast)
+    row.names(cor_mat) <- names(cropped_rasters())
+    names(cor_mat) <- names(cropped_rasters())
+    long_cormat <- as.table(as.matrix(cor_mat)) |>
+      as.data.frame()
+    pal <- RColorBrewer::brewer.pal(10, "Spectral")
+    pal <- paste0(pal, 'A6')
+    ggplot(long_cormat, aes(Var1, Var2, fill = Freq)) +
+      geom_tile() +
+      geom_text(aes(label = round(Freq, 3))) +
+      scale_fill_gradientn(colours = pal,
+        breaks = c(-1, 0, 1),
+        limits = c(-1, 1)) +
+      labs(fill = "Correlation") +
+        theme_minimal() +
+        theme(
+          axis.title = element_blank(),
+          axis.text = element_text(size = 20),
+          legend.title = element_text(size = 20),
+          legend.text = element_text(size = 20)
+        )
   })
 
   observeEvent(input$AC_dim, {
