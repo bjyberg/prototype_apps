@@ -7,6 +7,7 @@ library(exactextractr)
 library(dplyr)
 library(ggplot2)
 library(DT)
+library(plotly)
 source("R/functions.r")
 
 # backend code
@@ -32,6 +33,7 @@ countries_df <- st_read("www/aggregated_data_adm1.gpkg",
 dict_df <- read.csv("www/file_dict.csv")
 AC_df <- dict_df[dict_df$group == "ad_cap", ]
 hazard_df <- dict_df[dict_df$group == "hazard", ]
+
 # AC_df <- read.csv("www/cloud_file_dict.csv")
 # AC_df$path <- paste0("/vsicurl/", AC_df$path)
 ac_weightings <- read.csv("www/ac_weights.csv")
@@ -66,11 +68,12 @@ ui <- fluidPage(
           ),
           pickerInput("period", "Select Scenario",
             choices = c("Current", "Projected")),
-          pickerInput("ac_weight", "Adaptive Capacity Index Weighting",
-            choices = names(ac_weightings[-c(1, 2)])
+          pickerInput("ac_weight", "Vulnerability Index Calculation Method",
+            choices = c('Mean', 'Geometric Mean'),
+            #choices = names(ac_weightings[-c(1, 2)])
           ),
           checkboxInput("explore_dims",
-            label = "Explore Individual Adaptive Capacity Dimensions?",
+            label = "Explore Individual Vulnerability Dimensions?",
             FALSE
           ),
           conditionalPanel(
@@ -109,7 +112,7 @@ ui <- fluidPage(
             tabPanel("Summary Table",
               DTOutput("init_Table")),
             tabPanel("Regional Comparison",
-              plotOutput("bar_plot")),
+              plotlyOutput("bar_plot")),
             tabPanel("Distribution Comparison",
               plotOutput("box_plot")),
             tabPanel("Correlation",
@@ -145,7 +148,7 @@ ui <- fluidPage(
       sidebarLayout(
         sidebarPanel(
           pickerInput("bivar_x", "Select AC Variable", 
-          choices = AC_df$name,
+          choices = c(AC_df$name, 'Ad_cap'),
             selected = "gender"),
           pickerInput("bivar_y", "Select Hazard Variable",
            choices = hazard_df$name,
@@ -241,8 +244,11 @@ server <- function(input, output, session) {
       - ac_stack[[need_inv]]
         + minmax(ac_stack[[need_inv]])[1, ]
     )
-    normalize_rast(ac_stack[[2]])
-    ac_index <- indexer(ac_stack, weights, fun = "mean")
+    if (input$ac_weight == "Mean") {
+      ac_index <- indexer(ac_stack, fun = "mean")
+    } else if (input$ac_weight == "Geometric Mean") {
+      ac_index <- indexer(ac_stack, fun = "geometric_mean")
+    }
     return(ac_index)
   })
 
@@ -345,38 +351,64 @@ server <- function(input, output, session) {
   })
 
   output$init_Table <- renderDT(
-    expr = ({
-      table_df <- st_drop_geometry(region_filled())
-      if (length(input$Country) > 1) {
-        sub_s_full <- sub_s_full[names(sub_s_full) %in% names(table_df)]
-        rbind(table_df, sub_s_full)
-      } else {
-        table_df
-      }
-    }),
+    # expr = ({
+    #   table_df <- st_drop_geometry(region_filled())
+    #   if (length(input$Country) > 1) {
+    #     sub_s_full <- sub_s_full[names(sub_s_full) %in% names(table_df)]
+    #     rbind(table_df, sub_s_full)
+    #   } else {
+    #     table_df
+    #   }
+    # }),
+    st_drop_geometry(region_filled()),
     options = list(paging = TRUE,
                    pageLength = 5)
   )
 
-  output$bar_plot <- renderPlot({
-    req(region_filled(), input$AC_dim)
-    region_df <- st_drop_geometry(region_filled())[-c(7:12)]
-    if (length(input$Country) > 1) {
-      sub_s_full <- sub_s_full[names(sub_s_full) %in% names(region_df)]
-      rbind(region_df, sub_s_full)
-    }
-    mean_cols <- grep("mean\\.", names(region_df))
-    long_region <- tidyr::pivot_longer(region_df,
-      cols = mean_cols, names_to = "Varible", values_to = "value")
-    if ("NAME_1" %in% names(long_region)) {
-      long_region$region <- long_region$NAME_1
+  output$bar_plot <- renderPlotly({
+    req(region_filled())
+    region_df <- st_drop_geometry(region_filled())
+    if ("NAME_1" %in% names(region_df)) {
+      region_df$region <- region_df$NAME_1
     } else {
-      long_region$region <- long_region$NAME_0
+      region_df$region <- region_df$NAME_0
     }
-    ggplot(long_region) +
-      geom_bar(aes(x = region, y = value, fill = region),
-       stat = 'identity', position = 'dodge') +
-      facet_wrap(~ Varible, scales = 'free')
+    if (is.null(input$AC_dim)){
+      gplot <- ggplot(region_df) +
+        geom_bar(aes(x = region, y = AC_index, fill = region),
+          stat = "identity", position = "dodge") +
+        labs(fill = '') +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          axis.title.x = element_blank(),
+          legend.title = element_blank(),
+          legend.text = element_text(size = 14))
+    } else {
+      sd.vars <- grep("stdev\\.", names(region_df))
+      region_df <- region_df[-sd.vars]
+      if (length(input$Country) > 1) {
+        sub_s_full <- sub_s_full[names(sub_s_full) %in% names(region_df)]
+        sub_s_full$region <- sub_s_full$NAME_0
+        region_df <- rbind(region_df, sub_s_full)
+      }
+      mean_cols <- grep("mean\\.", names(region_df))
+      long_region <- tidyr::pivot_longer(region_df,
+        cols = mean_cols, names_to = "Varible", values_to = "value")
+      # if ("NAME_1" %in% names(long_region)) {
+      #   long_region$region <- long_region$NAME_1
+      # } else {
+      #   long_region$region <- long_region$NAME_0
+      # }
+      gplot <- ggplot(long_region) +
+        geom_bar(aes(x = region, y = value, fill = region),
+          stat = "identity", position = "dodge") +
+        labs(fill = '') +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          axis.title.x = element_blank(),
+          legend.title = element_blank(),
+          legend.text = element_text(size = 14)) +
+          facet_wrap(~Varible, scales = "free")
+    }
+    ggplotly(gplot)
   })
   
   output$box_plot <- renderPlot({
@@ -472,11 +504,17 @@ server <- function(input, output, session) {
 
   bi_vars <- reactive({
     req(final_region(), input$bivar_x, input$bivar_y)
-    ac_rast <- rast(AC_df$path[match(input$bivar_x, AC_df$name)]) |>
-      crop(final_region(), mask = TRUE)
-    haz_rast <- rast(AC_df$path[match(input$bivar_y, hazard_df$name)]) |>
-      crop(final_region(), mask = TRUE)
+    if (input$bivar_x == "Ad_cap") {
+      ac_rast <- ac_index()
+    } else {
+      ac_rast <- rast(AC_df$path[match(input$bivar_x, AC_df$name)]) |>
+        crop(final_region(), mask = TRUE)
+    }
+    haz_rast <- rast(hazard_df$path[match(input$bivar_y, hazard_df$name)]) |>
+      crop(final_region(), mask = TRUE) |>
+      resample(ac_rast)
     var_stack <- c(ac_rast, haz_rast)
+    return(var_stack)
     # if (input$bivar_x != input$bivar_y) {
     #   paths <- AC_df$path[match(c(input$bivar_x, input$bivar_y), AC_df$name)]
     #   var_stack <- rast(paths) |>
@@ -488,37 +526,38 @@ server <- function(input, output, session) {
     req(bi_vars())
     make_bivariate_data(bi_vars())
   })
+
   output$bivar_legend <- renderPlot({
     req(final_region(), bivar_data())
     bivar_legend(input$bivar_x, input$bivar_y)
   })
   output$bivar_map <- renderLeaflet({
     pal1 <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"),
-      values(raster::raster(bi_vars()[[1]])), na.color = "transparent")
+      values(bi_vars()[[1]]), na.color = "transparent")
     pal2 <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"),
-      values(raster::raster(bi_vars()[[2]])), na.color = "transparent")
+      values(bi_vars()[[2]]), na.color = "transparent")
     bi_pal <- c("#d3d3d3", "#97c5c5", "#52b6b6", "#cd9b88",
       "#92917f", "#4f8575", "#c55a33", "#8d5430", "#3f3f33")
     # the palette needs transposed to match the legend
     bi_pal <- as.vector(t(matrix(bi_pal, nrow = 3, ncol = 3)))
     leaflet() |>
       addTiles() |>
-      addRasterImage(raster::raster(bivar_data()), group = "Bivariate Map",
+      addRasterImage(bivar_data(), group = "Bivariate Map",
         color = colorFactor(palette = bi_pal, values(bivar_data()),
           na.color = "transparent", alpha = .8)) |>
-      addRasterImage(raster::raster(bi_vars()[[1]]),
-        group = "X", opacity = 0.8, colors = pal1) |>
-      addLegend(position = "bottomleft", pal = pal1, group = "X",
-        values = values(raster::raster(bi_vars()[[1]]))) |>
-      addRasterImage(raster::raster(bi_vars()[[2]]),
-        group = "Y", opacity = 0.8, colors = pal2) |>
-      addLegend(position = "bottomleft", pal = pal2, group = "Y",
-        values = values(raster::raster(bi_vars()[[2]]))) |>
+      addRasterImage(bi_vars()[[1]],
+        group = input$bivar_x, opacity = 0.8, colors = pal1) |>
+      addLegend(position = "bottomleft", pal = pal1, group = input$bivar_x,
+        values = values(bi_vars()[[1]])) |>
+      addRasterImage(bi_vars()[[2]],
+        group = input$bivar_y, opacity = 0.8, colors = pal2) |>
+      addLegend(position = "bottomleft", pal = pal2, group = input$bivar_y,
+        values = values(bi_vars()[[2]])) |>
       addLayersControl(
         position = "bottomright",
-        overlayGroups = c("Bivariate Map", "X", "Y"),
+        overlayGroups = c("Bivariate Map", input$bivar_x, input$bivar_y),
         options = layersControlOptions(collapsed = FALSE)) |>
-      hideGroup(c("X", "Y"))
+      hideGroup(c(input$bivar_x, input$bivar_y))
   })
   z_dots <- reactive({
     req(input$bivar_z, input$bivar_x, input$bivar_y)

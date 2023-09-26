@@ -232,7 +232,7 @@ indexer <- function(data, weights = NULL, fun = c("mean", "geometric_mean")) {
   # make index
   if (fun == "geometric_mean") {
     index <- prod(
-      (weighted_data^weights), na.rm = TRUE)^(1 / length(weighted_data))
+      (data^weights), na.rm = TRUE)^(1 / nlyr(data))
   } 
   if (fun == "mean") {
     index <- mean((data * weights), na.rm = TRUE)
