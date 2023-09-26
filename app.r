@@ -13,15 +13,25 @@ source("R/functions.r")
 # countries_df <- st_read("www/GADM_adm1.gpkg",
 #   query = "select GID_0, NAME_0 from 'GADM_adm1'", quiet = TRUE) |>
 #   unique()
+
+
+sub_s_full <- st_read("www/aggregated_data_adm0.gpkg",
+  query = paste(
+    "select * from 'aggregated_data_adm0'",
+    "where  NAME_0='region_avg'")) |>
+  st_drop_geometry()
+sub_s_full$AC_index <- NA
+
 countries_df <- st_read("www/aggregated_data_adm1.gpkg",
   query = "select GID_0, NAME_0 from 'aggregated_data_adm1'", quiet = TRUE) |>
   unique()
-
 # filters_df <- data.frame( # In half dev - need to complete
 #   name = c("population", "poverty"),
 #   path = c("www/AfriPop-total.tiff", "www/grdi_r1r3r2_filled.tif")
 # )
-AC_df <- read.csv("www/file_dict.csv")
+dict_df <- read.csv("www/file_dict.csv")
+AC_df <- dict_df[dict_df$group == "ad_cap", ]
+hazard_df <- dict_df[dict_df$group == "hazard", ]
 # AC_df <- read.csv("www/cloud_file_dict.csv")
 # AC_df$path <- paste0("/vsicurl/", AC_df$path)
 ac_weightings <- read.csv("www/ac_weights.csv")
@@ -98,7 +108,11 @@ ui <- fluidPage(
           tabsetPanel(type = "tabs",
             tabPanel("Summary Table",
               DTOutput("init_Table")),
-            tabPanel("Plots",
+            tabPanel("Regional Comparison",
+              plotOutput("bar_plot")),
+            tabPanel("Distribution Comparison",
+              plotOutput("box_plot")),
+            tabPanel("Correlation",
               plotOutput("cor_plot"))
           ),
           # tabsetPanel(type = "tabs",
@@ -130,10 +144,12 @@ ui <- fluidPage(
     tabPanel("Bivariate Mapping",
       sidebarLayout(
         sidebarPanel(
-          pickerInput("bivar_x", "Select X Variable", choices = AC_df$name,
+          pickerInput("bivar_x", "Select AC Variable", 
+          choices = AC_df$name,
             selected = "gender"),
-          pickerInput("bivar_y", "Select Y Variable", choices = AC_df$name,
-            selected = "poverty"),
+          pickerInput("bivar_y", "Select Hazard Variable",
+           choices = hazard_df$name,
+            selected = "heat_stress"),
           checkboxInput("addZ", "Plot a 3rd variable?", FALSE),
           conditionalPanel(
             condition = "input.addZ == 1",
@@ -329,14 +345,44 @@ server <- function(input, output, session) {
   })
 
   output$init_Table <- renderDT(
-    st_drop_geometry(region_filled()),
+    expr = ({
+      table_df <- st_drop_geometry(region_filled())
+      if (length(input$Country) > 1) {
+        sub_s_full <- sub_s_full[names(sub_s_full) %in% names(table_df)]
+        rbind(table_df, sub_s_full)
+      } else {
+        table_df
+      }
+    }),
     options = list(paging = TRUE,
                    pageLength = 5)
   )
 
-  output$variable_plot <- renderPlot({
-    req(cropped_rasters())
-    plot(cropped_rasters())
+  output$bar_plot <- renderPlot({
+    req(region_filled(), input$AC_dim)
+    region_df <- st_drop_geometry(region_filled())[-c(7:12)]
+    if (length(input$Country) > 1) {
+      sub_s_full <- sub_s_full[names(sub_s_full) %in% names(region_df)]
+      rbind(region_df, sub_s_full)
+    }
+    mean_cols <- grep("mean\\.", names(region_df))
+    long_region <- tidyr::pivot_longer(region_df,
+      cols = mean_cols, names_to = "Varible", values_to = "value")
+    if ("NAME_1" %in% names(long_region)) {
+      long_region$region <- long_region$NAME_1
+    } else {
+      long_region$region <- long_region$NAME_0
+    }
+    ggplot(long_region) +
+      geom_bar(aes(x = region, y = value, fill = region),
+       stat = 'identity', position = 'dodge') +
+      facet_wrap(~ Varible, scales = 'free')
+  })
+  
+  output$box_plot <- renderPlot({
+    req(region_filled())
+    bars <- boxplot(cropped_rasters())
+    plot(bars)
   })
   output$cor_plot <- renderPlot({
     req(cropped_rasters())
@@ -426,11 +472,16 @@ server <- function(input, output, session) {
 
   bi_vars <- reactive({
     req(final_region(), input$bivar_x, input$bivar_y)
-    if (input$bivar_x != input$bivar_y) {
-      paths <- AC_df$path[match(c(input$bivar_x, input$bivar_y), AC_df$name)]
-      var_stack <- rast(paths) |>
-        crop(final_region(), mask = TRUE)
-    }
+    ac_rast <- rast(AC_df$path[match(input$bivar_x, AC_df$name)]) |>
+      crop(final_region(), mask = TRUE)
+    haz_rast <- rast(AC_df$path[match(input$bivar_y, hazard_df$name)]) |>
+      crop(final_region(), mask = TRUE)
+    var_stack <- c(ac_rast, haz_rast)
+    # if (input$bivar_x != input$bivar_y) {
+    #   paths <- AC_df$path[match(c(input$bivar_x, input$bivar_y), AC_df$name)]
+    #   var_stack <- rast(paths) |>
+    #     crop(final_region(), mask = TRUE)
+    # }
   })
 
   bivar_data <- reactive({
