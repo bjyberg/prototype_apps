@@ -21,7 +21,7 @@ sub_s_full <- st_read("www/aggregated_data_adm0.gpkg",
     "select * from 'aggregated_data_adm0'",
     "where  NAME_0='region_avg'")) |>
   st_drop_geometry()
-sub_s_full$AC_index <- NA
+sub_s_full$AC_index <- NA # dummy to allow binding
 
 countries_df <- st_read("www/aggregated_data_adm1.gpkg",
   query = "select GID_0, NAME_0 from 'aggregated_data_adm1'", quiet = TRUE) |>
@@ -47,7 +47,7 @@ ac_weightings <- read.csv("www/ac_weights.csv")
 # UI
 ui <- fluidPage(
   navbarPage("Vulnerability Prototype",
-    tabPanel("Map",
+    tabPanel("Baseline",
       sidebarLayout(
         sidebarPanel(
           pickerInput("Country", "Select Country",
@@ -66,8 +66,6 @@ ui <- fluidPage(
                 `live-search` = TRUE),
               multiple = TRUE)
           ),
-          pickerInput("period", "Select Scenario",
-            choices = c("Current", "Projected")),
           pickerInput("ac_weight", "Vulnerability Index Calculation Method",
             choices = c('Mean', 'Geometric Mean'),
             #choices = names(ac_weightings[-c(1, 2)])
@@ -133,17 +131,67 @@ ui <- fluidPage(
         )
       ),
     ),
-    # tabPanel("Adaptive Capacity Index",
-    #   sidebarLayout(
-    #     sidebarPanel(
-    #       pickerInput("ac_weight", "Weighting Scenario",
-    #         choices = names(ac_weightings[-c(1,2)]))
-    #     ),
-    #     mainPanel(
-    #       plotOutput("ac_index_plot")
-    #     )
-    #   )
-    # ),
+    tabPanel("Future",
+      sidebarLayout(
+        sidebarPanel(
+          pickerInput("fut_Country", "Select Country",
+            choices = countries_df$NAME_0,
+            selected = countries_df$NAME_0[5],
+            options = list(
+              `actions-box` = TRUE,
+              `live-search` = TRUE),
+            multiple = TRUE
+          ),
+          conditionalPanel(
+            condition = "input.Country.length == 1",
+            pickerInput("fut_Admin", "Admin Region", choices = NULL,
+              options = list(
+                `actions-box` = TRUE,
+                `live-search` = TRUE),
+              multiple = TRUE)
+          ),
+          pickerInput("period", "Select Scenario",
+            choices = c("SSP1", "SSP2", "SSP3", "SSP4")),
+          pickerInput("fut_ac_weight", "Vulnerability Index Calculation Method",
+            choices = c("Mean", "Geometric Mean"),
+            # choices = names(ac_weightings[-c(1, 2)])
+          ),
+          checkboxInput("fut_explore_dims",
+            label = "Explore Individual Vulnerability Dimensions?",
+            FALSE
+          ),
+          conditionalPanel(
+            condition = "input.explore_dims == 1",
+            pickerInput("fut_AC_dim", "Select AC Dimension",
+              choices = AC_df$name,
+              selected = NULL,
+              options = list(`actions-box` = TRUE),
+              multiple = TRUE
+            ),
+          ),
+          hr(),
+          downloadButton("fut_download", "Download Data"),
+          radioButtons("fut_downloadType", "Download Type",
+            choices = c("CSV" = ".csv",
+              "GeoTIFF" = ".tif",
+              "Geopackage" = ".gpkg",
+              "Shapefile" = ".shp"),
+          )
+        ),
+        mainPanel(
+          #leafletOutput("map"),
+          # tabsetPanel(type = "tabs",
+          #   tabPanel("Summary Table",
+          #     DTOutput("init_Table")),
+          #   tabPanel("Regional Comparison",
+          #     plotlyOutput("bar_plot")),
+          #   tabPanel("Distribution Comparison",
+          #     plotOutput("box_plot")),
+          #   tabPanel("Correlation",
+          #     plotOutput("cor_plot"))
+        )
+      )
+    ),
     tabPanel("Bivariate Mapping",
       sidebarLayout(
         sidebarPanel(
@@ -327,27 +375,6 @@ server <- function(input, output, session) {
     selected_region_data$AC_index <- exact_extract(ac_index(), final_region(),
       fun = "mean")
     return(selected_region_data)
-    # extract_fn <- AC_df[match(ac_names, AC_df$name), "fn"]
-    # extracted <- list()
-    # if ("mean" %in% extract_fn) {
-    #   mean_rasts <- cropped_rasters()[[match("mean", extract_fn)]]
-    #   means <- exact_extract(mean_rasts, final_region(),
-    #     c("mean", "stdev"), colname_fun = function(fun_name, values) {
-    #       paste(values, fun_name, sep = "_")
-    #     })
-    #   extracted <- append(extracted, means)
-    # }
-    # if ("sum" %in% extract_fn) {
-    #   sum_rasts <- cropped_rasters()[[match("sum", extract_fn)]]
-    #   sums <- exact_extract(sum_rasts, final_region(), "sum",
-    #     colname_fun = function(fun_name, values) {
-    #       paste(values, fun_name, sep = "_")
-    #     })
-    #   extracted <- append(extracted, sums)
-    # }
-    # extracted$pop <- exact_extract(pop, final_region(), fun = "sum")
-    # cbind(final_region(), as.data.frame(extracted)) |>
-    #   st_as_sf()
   })
 
   output$init_Table <- renderDT(
@@ -393,11 +420,6 @@ server <- function(input, output, session) {
       mean_cols <- grep("mean\\.", names(region_df))
       long_region <- tidyr::pivot_longer(region_df,
         cols = mean_cols, names_to = "Varible", values_to = "value")
-      # if ("NAME_1" %in% names(long_region)) {
-      #   long_region$region <- long_region$NAME_1
-      # } else {
-      #   long_region$region <- long_region$NAME_0
-      # }
       gplot <- ggplot(long_region) +
         geom_bar(aes(x = region, y = value, fill = region),
           stat = "identity", position = "dodge") +
