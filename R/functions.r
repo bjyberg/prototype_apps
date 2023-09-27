@@ -27,7 +27,7 @@ bivar_legend <- function(x.title, y.title, n = 3, pal = NULL) {
       y = paste(y.title, "→")) +
     theme_void() +
     theme(
-      axis.title = element_text(size = 18),
+      axis.title = element_text(size = 10),
       axis.title.y = element_text(angle = 90)
     ) +
     coord_fixed()

@@ -23,7 +23,7 @@ sub_s_full <- st_read("www/aggregated_data_adm0.gpkg",
     "select * from 'aggregated_data_adm0'",
     "where  NAME_0='region_avg'")) |>
   st_drop_geometry()
-sub_s_full$AC_index <- NA # dummy to allow binding
+sub_s_full$vulnerability_index <- NA # dummy to allow binding
 
 countries_df <- st_read("www/aggregated_data_adm1.gpkg",
   query = "select GID_0, NAME_0 from 'aggregated_data_adm1'", quiet = TRUE) |>
@@ -197,8 +197,8 @@ ui <- fluidPage(
     tabPanel("Hazard Interaction",
       sidebarLayout(
         sidebarPanel(
-          pickerInput("bivar_x", "Select AC Variable", 
-          choices = c(AC_df$name, 'Ad_cap'),
+          pickerInput("bivar_x", "Select Vulnerability Variable", 
+          choices = c(AC_df$name, 'Vulnerability Index'),
             selected = "gender"),
           pickerInput("bivar_y", "Select Hazard Variable",
            choices = hazard_df$name,
@@ -315,7 +315,8 @@ server <- function(input, output, session) {
     } else {
       selected_region_data <- final_region()[req_cols]
     }
-    selected_region_data$AC_index <- exact_extract(ac_index(), final_region(),
+    selected_region_data$vulnerability_index <- exact_extract(ac_index(),
+     final_region(),
       fun = "mean")
     return(selected_region_data)
   })
@@ -406,7 +407,7 @@ server <- function(input, output, session) {
     }
     if (is.null(input$AC_dim)){
       gplot <- ggplot(region_df) +
-        geom_bar(aes(x = region, y = AC_index, fill = region),
+        geom_bar(aes(x = region, y = vulnerability_index, fill = region),
           stat = "identity", position = "dodge") +
         labs(fill = "") +
           theme(
@@ -594,7 +595,7 @@ server <- function(input, output, session) {
 
   bi_vars <- reactive({
     req(final_region(), input$bivar_x, input$bivar_y)
-    if (input$bivar_x == "Ad_cap") {
+    if (input$bivar_x == "Vulnerability Index") {
       ac_rast <- ac_index()
     } else {
       ac_rast <- rast(AC_df$path[match(input$bivar_x, AC_df$name)]) |>
