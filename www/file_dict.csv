@@ -1,9 +1,11 @@
-group,name,path ,fn
-ad_cap,gender,www/Gender_Equity_hotspot_unmasked.tif,mean
-ad_cap,poverty,www/grdi_r1r3r2_filled.tif,mean
-ad_cap,irrigation,www/irrigated_area.tiff,mean
-ad_cap,conflict,www/afri_conflict_jit.tif,mean
-ad_cap,market_access,www/Market_Access_cog.tif,mean
-ad_cap,healthcare_access,www/Health_Facility_Access_cog.tif,mean
-hazard,heat_stress,www/HSM_NTx35_mean_year_masked.tiff,NA
-hazard,drought,www/NDD_mean_year_masked.tiff,NA
+group,name,path ,fn,inverse,units
+ad_cap,gender,www/Gender_Equity_hotspot_unmasked.tif,mean,TRUE,Index(0-1)
+ad_cap,poverty,www/grdi_r1r3r2_filled.tif,mean,FALSE,Index(0-1)
+ad_cap,irrigation,www/irrigated_area.tiff,mean,TRUE,ha
+ad_cap,conflict,www/afri_conflict_jit.tif,mean,FALSE,Index(0-1)
+ad_cap,market_access,www/Market_Access_cog.tif,mean,FALSE,km
+ad_cap,healthcare_access,www/Health_Facility_Access_cog.tif,mean,FALSE,km
+ad_cap,mobile_broadband,www/Mobile_Internet_Access_cog.tif,mean,TRUE,Index(0-1)
+ad_cap,education,www/Education_cog.tif,mean,TRUE,Index(0-1)
+hazard,heat_stress,www/HSM_NTx35_mean_year_masked.tiff,NA,NA,days/month
+hazard,drought,www/NDD_mean_year_masked.tiff,NA,NA,days/month
