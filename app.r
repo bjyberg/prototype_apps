@@ -1,5 +1,6 @@
 library(shiny)
 library(leaflet)
+library(mapview)
 library(shinyWidgets)
 library(terra)
 library(sf)
@@ -8,6 +9,7 @@ library(dplyr)
 library(ggplot2)
 library(DT)
 library(plotly)
+library(htmlTable)
 source("R/functions.r")
 
 # backend code
@@ -112,8 +114,9 @@ ui <- fluidPage(
             tabPanel("Regional Comparison",
               plotlyOutput("bar_plot")),
             tabPanel("Distribution Comparison",
-              plotOutput("box_plot")),
+              plotlyOutput("box_plot")),
             tabPanel("Correlation",
+            textOutput("cor_plot_warning"),
               plotOutput("cor_plot"))
           ),
           # tabsetPanel(type = "tabs",
@@ -284,8 +287,8 @@ server <- function(input, output, session) {
       crop(final_region(), mask = TRUE)
     names(ac_stack) <- AC_df$name
     # Round the pov layer atm to fix floating point errors
-    ac_stack[['poverty']] <- round(ac_stack[['poverty']], 10) # fix data instead
-    need_inv <- AC_df[AC_df$inverse, 'name']
+    ac_stack[["poverty"]] <- round(ac_stack[["poverty"]], 10) # fix data instead
+    need_inv <- AC_df[AC_df$inverse, "name"]
     ac_stack[[need_inv]] <-  (
       minmax(ac_stack[[need_inv]])[2, ]
       - ac_stack[[need_inv]]
@@ -296,7 +299,25 @@ server <- function(input, output, session) {
     } else if (input$ac_weight == "Geometric Mean") {
       ac_index <- indexer(ac_stack, fun = "geometric_mean")
     }
+    names(ac_index) <- 'vulnerabiltiy_index'
     return(ac_index)
+  })
+  
+  region_filled <- reactive({
+    req_cols <- c("GID_0", "NAME_0")
+    if ("NAME_1" %in% names(final_region())) {
+      req_cols <- c("NAME_1", req_cols)
+    }
+    if (isTruthy(input$AC_dim)) {
+      col_clean_names <- gsub(".*\\.", "", names(final_region()))
+      usr_cols <- names(final_region()[col_clean_names %in% input$AC_dim])
+      selected_region_data <- final_region()[c(req_cols, usr_cols)]
+    } else {
+      selected_region_data <- final_region()[req_cols]
+    }
+    selected_region_data$AC_index <- exact_extract(ac_index(), final_region(),
+      fun = "mean")
+    return(selected_region_data)
   })
 
   output$map <- renderLeaflet({
@@ -304,9 +325,8 @@ server <- function(input, output, session) {
     ac_pal <- colorNumeric("OrRd", values(ac_index()), na.color = "transparent")
     leaflet() |>
       addTiles() |>
-      addRasterImage(ac_index(), colors = ac_pal) |>
-      addLegend(pal = ac_pal, values = values(ac_index())) |>
-      # setView(lng = 20, lat = -6, zoom = 3) |>
+      addRasterImage(ac_index(), colors = ac_pal, group = 'ac_index') |>
+      addLegend(pal = ac_pal, values = values(ac_index()), group = 'ac_index') |>
       addCircles(lng = 20, lat = -6, group = "ADM1", # added for group delete
         fill = FALSE, weight = 0) |>
       addCircles(lng = 20, lat = -6, group = "ADM0", fill = FALSE, weight = 0)
@@ -314,7 +334,7 @@ server <- function(input, output, session) {
 
   # output$ac_index_plot <- renderPlot({
   #   plot(ac_index())
-  # })z
+  # })
 
   observe({
     req(region_selection())
@@ -354,27 +374,12 @@ server <- function(input, output, session) {
     #  |>
     # crop(pop_mask(), mask = TRUE)
     names(ac_dims) <- ac_names
-    ac_stack <- c(ac_dims, ac_index())
-    names(ac_stack) <- c(names(ac_dims), "ac_index")
-    return(ac_stack)
+    # ac_stack <- c(ac_dims, ac_index())
+    # names(ac_stack) <- c(names(ac_dims), "ac_index")
+    # return(ac_stack)
+    return(ac_dims)
   })
 
-  region_filled <- reactive({
-    req_cols <- c("GID_0", "NAME_0")
-    if ("NAME_1" %in% names(final_region())) {
-      req_cols <- c("NAME_1", req_cols)
-    }
-    if (isTruthy(input$AC_dim)) {
-      col_clean_names <- gsub(".*\\.", "", names(final_region()))
-      usr_cols <- names(final_region()[col_clean_names %in% input$AC_dim])
-      selected_region_data <- final_region()[c(req_cols, usr_cols)]
-    } else {
-      selected_region_data <- final_region()[req_cols]
-    }
-    selected_region_data$AC_index <- exact_extract(ac_index(), final_region(),
-      fun = "mean")
-    return(selected_region_data)
-  })
 
   output$init_Table <- renderDT(
     # expr = ({
@@ -405,7 +410,6 @@ server <- function(input, output, session) {
           stat = "identity", position = "dodge") +
         labs(fill = "") +
           theme(
-            # axis.text.x = element_text(angle = 45, hjust = 1),
             axis.title.y = element_blank(),
             legend.title = element_blank(),
             legend.text = element_text(size = 10)) +
@@ -426,7 +430,6 @@ server <- function(input, output, session) {
           stat = "identity", position = "dodge") +
         labs(fill = '') +
         theme( 
-          #axis.text.x = element_text(angle = 45, hjust = 1),
           axis.title.y = element_blank(),
           legend.title = element_blank(),
           legend.text = element_text(size = 10)) +
@@ -436,21 +439,50 @@ server <- function(input, output, session) {
     ggplotly(gplot, tooltip = c('fill', 'y'))
   })
   
-  output$box_plot <- renderPlot({
-    req(region_filled())
-    bars <- boxplot(cropped_rasters())
-    plot(bars)
+  output$box_plot <- renderPlotly({
+    req(final_region(), ac_index())
+    if (is.null(input$AC_dim)) {
+      vals <- extract(ac_index(), final_region())
+      if ("NAME_1" %in% names(final_region())) {
+        vals$region <- st_drop_geometry(final_region())[vals[["ID"]], "NAME_1"]
+      } else {
+        vals$region <- st_drop_geometry(final_region())[vals[["ID"]], "NAME_0"]
+      }
+      vals$region <- as.factor(vals$region)
+      ggbox <- ggplot(vals) +
+        geom_boxplot(aes(x = region, y = vulnerabiltiy_index,
+          group = region, fill = region)) +
+        coord_flip()
+    } else {
+      vals <- extract(cropped_rasters(), final_region())
+      if ("NAME_1" %in% names(final_region())) {
+        vals$region <- st_drop_geometry(final_region())[vals[["ID"]], "NAME_1"]
+      } else {
+        vals$region <- st_drop_geometry(final_region())[vals[["ID"]], "NAME_0"]
+      }
+      vals$region <- as.factor(vals$region)
+      long_vals <- tidyr::pivot_longer(vals, cols = names(cropped_rasters()),
+        names_to = "layer", values_to = 'values')
+      ggbox <- ggplot(long_vals) +
+        geom_boxplot(aes(x = region, y = values,
+          group = region, fill = region)) +
+        facet_wrap(~layer) +
+          coord_flip()
+    }
+    ggplotly(ggbox, tooltip = c('x', 'y'))
+  })
+  output$cor_plot_warning <- renderText({
+    if (!isTruthy(input$AC_dim)) {
+      print("At least one vulnerability dimension must be selected.")
+    }
   })
   output$cor_plot <- renderPlot({
     req(cropped_rasters())
-    cor_mat <- layerCor(cropped_rasters(), "pearson", na.rm = T)[[1]] |>
+    cor_stack <- c(cropped_rasters(), ac_index())
+    cor_mat <- layerCor(cor_stack, "pearson", na.rm = T)[[1]] |>
       as.data.frame()
-        # cor_mat <- layerCor(ac_dims, "pearson", na.rm = T)[[1]] |>
-        #   as.data.frame()
-      # row.names(cor_mat) <- names(ac_rast)
-      # names(cor_mat) <- names(ac_rast)
-    row.names(cor_mat) <- names(cropped_rasters())
-    names(cor_mat) <- names(cropped_rasters())
+    row.names(cor_mat) <- names(cor_stack)
+    names(cor_mat) <- names(cor_stack)
     long_cormat <- as.table(as.matrix(cor_mat)) |>
       as.data.frame()
     pal <- RColorBrewer::brewer.pal(10, "Spectral")
@@ -473,28 +505,50 @@ server <- function(input, output, session) {
 
   observeEvent(input$AC_dim, {
     req(input$AC_dim)
-    pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"),
-      values(cropped_rasters()), na.color = "transparent")
-
     leafletProxy("map") |>
-      clearShapes() |>
       clearImages() |>
-      clearControls() |>
-      addRasterImage(cropped_rasters(), colors = pal, opacity = 0.8) |>
-      addLegend(position = "bottomright", pal = pal,
-        values = values(cropped_rasters()),
-        title = paste(names(cropped_rasters()))) |>
+      clearControls()
+  #   top_lyr <- cropped_rasters()[[grep(input$AC_dim, names(cropped_rasters()))]]
+  #   pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"),
+  #     values(top_lyr), na.color = "transparent")
+  # units <- AC_df[AC_df$name == names(top_lyr), 'units']
+  # leafletProxy("map") |>
+  #   clearShapes() |>
+  #   clearControls() |>
+  #   clearImages() |>
+  #       addRasterImage(top_lyr, colors = pal, opacity = 0.8) |>
+  #       addLegend(position = "bottomright", pal = pal,
+  #         values = values(top_lyr),
+  #         title = paste(names(top_lyr), units))
+  ac_dims <- c(cropped_rasters(), ac_index())
+    for (layer in 1:nlyr(ac_dims)) {
+      pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"),
+        values(ac_dims[[layer]]), na.color = "transparent")
+      lyr_name <- names(ac_dims[[layer]])
+      units <- AC_df[AC_df$name == lyr_name, 'units'] 
+      leafletProxy("map") |>
+        # clearShapes() |>
+        # clearControls() |>
+        addRasterImage(ac_dims[[layer]], colors = pal, opacity = 0.8,
+          group = lyr_name) |>
+        addLegend(position = "bottomright", pal = pal,
+          values = values(ac_dims[[layer]]),
+          title = paste(lyr_name, units),
+          group = lyr_name) |>
+        addLayersControl(
+          position = "bottomright",
+          overlayGroups = c(names(ac_dims)),
+          options = layersControlOptions(collapsed = FALSE)) |>
+        hideGroup(names(cropped_rasters())) # |>
+        # addPolygons(data = region_filled(), fillColor = "transparent",
+        #   color = "black", weight = .5
+        # )
+    }
+    leafletProxy("map") |>
       addPolygons(data = region_filled(), fillColor = "transparent",
-        color = "black", weight = .5,
-         popup = region_filled()
-        #   "Country: ", NAME_0,
-        #   "<br>Region: ", NAME_1,
-        #   "<br>Mean Equality: ", mean,
-        #   "<br>Stdev: ", stdev,
-        #   "<br>Population: ", pop)
-      )
+          color = "black", weight = .5)
   })
-
+  
   output$download <- downloadHandler(
     filename = function() {
       paste0("Placeholder", input$downloadType)
