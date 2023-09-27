@@ -136,7 +136,7 @@ ui <- fluidPage(
         sidebarPanel(
           pickerInput("fut_Country", "Select Country",
             choices = countries_df$NAME_0,
-            selected = countries_df$NAME_0[5],
+            selected = NULL,
             options = list(
               `actions-box` = TRUE,
               `live-search` = TRUE),
@@ -154,7 +154,6 @@ ui <- fluidPage(
             choices = c("SSP1", "SSP2", "SSP3", "SSP4")),
           pickerInput("fut_ac_weight", "Vulnerability Index Calculation Method",
             choices = c("Mean", "Geometric Mean"),
-            # choices = names(ac_weightings[-c(1, 2)])
           ),
           checkboxInput("fut_explore_dims",
             label = "Explore Individual Vulnerability Dimensions?",
@@ -192,7 +191,7 @@ ui <- fluidPage(
         )
       )
     ),
-    tabPanel("Bivariate Mapping",
+    tabPanel("Hazard Interaction",
       sidebarLayout(
         sidebarPanel(
           pickerInput("bivar_x", "Select AC Variable", 
@@ -286,7 +285,7 @@ server <- function(input, output, session) {
     names(ac_stack) <- AC_df$name
     # Round the pov layer atm to fix floating point errors
     ac_stack[['poverty']] <- round(ac_stack[['poverty']], 10) # fix data instead
-    need_inv <- ac_weightings[ac_weightings$inverse, 1]
+    need_inv <- AC_df[AC_df$inverse, 'name']
     ac_stack[[need_inv]] <-  (
       minmax(ac_stack[[need_inv]])[2, ]
       - ac_stack[[need_inv]]
@@ -404,11 +403,13 @@ server <- function(input, output, session) {
       gplot <- ggplot(region_df) +
         geom_bar(aes(x = region, y = AC_index, fill = region),
           stat = "identity", position = "dodge") +
-        labs(fill = '') +
-        theme(axis.text.x = element_text(angle = 45, hjust = 1),
-          axis.title.x = element_blank(),
-          legend.title = element_blank(),
-          legend.text = element_text(size = 14))
+        labs(fill = "") +
+          theme(
+            # axis.text.x = element_text(angle = 45, hjust = 1),
+            axis.title.y = element_blank(),
+            legend.title = element_blank(),
+            legend.text = element_text(size = 10)) +
+        coord_flip()
     } else {
       sd.vars <- grep("stdev\\.", names(region_df))
       region_df <- region_df[-sd.vars]
@@ -424,13 +425,15 @@ server <- function(input, output, session) {
         geom_bar(aes(x = region, y = value, fill = region),
           stat = "identity", position = "dodge") +
         labs(fill = '') +
-        theme(axis.text.x = element_text(angle = 45, hjust = 1),
-          axis.title.x = element_blank(),
+        theme( 
+          #axis.text.x = element_text(angle = 45, hjust = 1),
+          axis.title.y = element_blank(),
           legend.title = element_blank(),
-          legend.text = element_text(size = 14)) +
-          facet_wrap(~Varible, scales = "free")
+          legend.text = element_text(size = 10)) +
+          facet_wrap(~Varible, scales = "free_x") +
+        coord_flip()
     }
-    ggplotly(gplot)
+    ggplotly(gplot, tooltip = c('fill', 'y'))
   })
   
   output$box_plot <- renderPlot({
@@ -514,6 +517,17 @@ server <- function(input, output, session) {
       }
     }
   )
+
+  # Future/projections page -----
+  
+  # Update the Selections based on baseline, if user has selected
+  observe({
+    baseline_country <- input$Country
+    updateSelectInput(inputId = "fut_Country", selected = baseline_country)
+  })
+  observe({
+    updateSelectInput(inputId = "fut_ac_weight", selected = input$ac_weight)
+  })
 
 
   # Bivariate Mapping
