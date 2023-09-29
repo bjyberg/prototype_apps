@@ -433,7 +433,7 @@ server <- function(input, output, session) {
       long_region <- tidyr::pivot_longer(region_df,
         cols = mean_cols, names_to = "Varible", values_to = "value")
       print(long_region$value)
-      long_region$value <- round(as.numeric(long_region$value), 4)
+      long_region$value <- round(as.numeric(long_region$value), 3)
       gplot <- ggplot(long_region) +
         geom_bar(aes(x = region, y = value, fill = region),
           stat = "identity", position = "dodge") +
@@ -633,11 +633,11 @@ server <- function(input, output, session) {
 
   fut_final_region <- reactive({
     if (length(input$fut_Country) > 1) {
-      region_selection()
+      fut_region_selection()
     } else if (isTruthy(input$fut_Admin)) {
-      adm_region_select()
+      fut_adm_region_select()
     } else {
-      region_selection()
+      fut_region_selection()
     }
   })
 
@@ -661,9 +661,9 @@ server <- function(input, output, session) {
     #   - ac_stack[[need_inv]]
     #     + minmax(ac_stack[[need_inv]])[1, ]
     # )
-    if (input$ac_weight == "Mean") {
+    if (input$fut_ac_weight == "Mean") {
       ac_index <- indexer(ac_stack, fun = "mean")
-    } else if (input$ac_weight == "Geometric Mean") {
+    } else if (input$fut_ac_weight == "Geometric Mean") {
       ac_index <- indexer(ac_stack, fun = "geometric_mean")
     }
     names(ac_index) <- 'vulnerabiltiy_index'
