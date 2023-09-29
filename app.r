@@ -1,6 +1,6 @@
 library(shiny)
 library(leaflet)
-library(mapview)
+# library(mapview)
 library(shinyWidgets)
 library(terra)
 library(sf)
@@ -79,7 +79,7 @@ ui <- fluidPage(
           ),
           conditionalPanel(
             condition = "input.explore_dims == 1",
-            pickerInput("AC_dim", "Select AC Dimension",
+            pickerInput("AC_dim", "Select Vulnerability Dimension",
               choices = AC_df$name,
               selected = NULL,
               options = list(`actions-box` = TRUE),
@@ -419,12 +419,11 @@ server <- function(input, output, session) {
         labs(fill = "") +
           theme(
             axis.title.y = element_blank(),
+            axis.title.x = element_blank(),
             legend.title = element_blank(),
             legend.text = element_text(size = 10)) +
         coord_flip()
     } else {
-      sd.vars <- grep("stdev\\.", names(region_df))
-      region_df <- region_df[-sd.vars]
       if (length(input$Country) > 1) {
         sub_s_full <- sub_s_full[names(sub_s_full) %in% names(region_df)]
         sub_s_full$region <- sub_s_full$NAME_0
@@ -433,15 +432,18 @@ server <- function(input, output, session) {
       mean_cols <- grep("mean\\.", names(region_df))
       long_region <- tidyr::pivot_longer(region_df,
         cols = mean_cols, names_to = "Varible", values_to = "value")
+      print(long_region$value)
+      long_region$value <- round(as.numeric(long_region$value), 4)
       gplot <- ggplot(long_region) +
         geom_bar(aes(x = region, y = value, fill = region),
           stat = "identity", position = "dodge") +
-        labs(fill = '') +
-        theme( 
+        labs(fill = "") +
+        facet_wrap(~ Varible, scales = "free_x") +
+        theme(
           axis.title.y = element_blank(),
+          axis.title.x = element_blank(),
           legend.title = element_blank(),
           legend.text = element_text(size = 10)) +
-          facet_wrap(~Varible, scales = "free_x") +
         coord_flip()
     }
     ggplotly(gplot, tooltip = c('fill', 'y'))
@@ -460,6 +462,11 @@ server <- function(input, output, session) {
       ggbox <- ggplot(vals) +
         geom_boxplot(aes(x = region, y = vulnerabiltiy_index,
           group = region, fill = region)) +
+        theme(
+          axis.title.y = element_blank(),
+          axis.title.x = element_blank(),
+          legend.title = element_blank(),
+          legend.text = element_text(size = 10)) +
         coord_flip()
     } else {
       vals <- extract(cropped_rasters(), final_region())
@@ -472,9 +479,14 @@ server <- function(input, output, session) {
       long_vals <- tidyr::pivot_longer(vals, cols = names(cropped_rasters()),
         names_to = "layer", values_to = 'values')
       ggbox <- ggplot(long_vals) +
-        geom_boxplot(aes(x = region, y = values,
+        geom_boxplot(aes(x = region, y = round(values, 3),
           group = region, fill = region)) +
-        facet_wrap(~layer) +
+        facet_wrap(~layer, scales = "free_x") +
+          theme(
+            axis.title.y = element_blank(),
+            axis.title.x = element_blank(),
+            legend.title = element_blank(),
+            legend.text = element_text(size = 10)) +
           coord_flip()
     }
     ggplotly(ggbox, tooltip = c('x', 'y', 'fill'))
@@ -511,23 +523,11 @@ server <- function(input, output, session) {
         )
   })
 
-  observeEvent(input$AC_dim, {
+  observe({ #input$AC_dim
     req(input$AC_dim)
     leafletProxy("map") |>
       clearImages() |>
       clearControls()
-    #   top_lyr <- cropped_rasters()[[grep(input$AC_dim, names(cropped_rasters()))]]
-    #   pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"),
-    #     values(top_lyr), na.color = "transparent")
-    # units <- AC_df[AC_df$name == names(top_lyr), 'units']
-    # leafletProxy("map") |>
-    #   clearShapes() |>
-    #   clearControls() |>
-    #   clearImages() |>
-    #       addRasterImage(top_lyr, colors = pal, opacity = 0.8) |>
-    #       addLegend(position = "bottomright", pal = pal,
-    #         values = values(top_lyr),
-    #         title = paste(names(top_lyr), units))
     ac_dims <- c(cropped_rasters(), ac_index())
     for (layer in 1:nlyr(ac_dims)) {
       pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"),
@@ -536,10 +536,10 @@ server <- function(input, output, session) {
       units <- AC_df[AC_df$name == lyr_name, "units"]
       leafletProxy("map") |>
         # clearShapes() |>
-        # clearControls() |>
+         clearControls() |>
         addRasterImage(ac_dims[[layer]], colors = pal, opacity = 0.8,
           group = lyr_name) |>
-        addLegend(position = "bottomright", pal = pal,
+        addLegend(position = "bottomleft", pal = pal,
           values = values(ac_dims[[layer]]),
           title = paste(lyr_name, units),
           group = lyr_name) |>
@@ -903,7 +903,7 @@ server <- function(input, output, session) {
         # clearControls() |>
         addRasterImage(ac_dims[[layer]], colors = pal, opacity = 0.8,
           group = lyr_name) |>
-        addLegend(position = "bottomright", pal = pal,
+        addLegend(position = "bottomleft", pal = pal,
           values = values(ac_dims[[layer]]),
           title = paste(lyr_name, units),
           group = lyr_name) |>
@@ -1040,7 +1040,7 @@ server <- function(input, output, session) {
           baseSize = 10, fillOpacity = .7,
           values = log(z_dots()$z + 1) * 10,
           orientation = "horizontal",
-          title = "z", position = "bottomleft", data = symbols,
+          title = input$bivar_z, position = "bottomleft", data = symbols,
           group = "z_group")
     }
   })
