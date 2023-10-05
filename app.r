@@ -169,7 +169,7 @@ ui <- fluidPage(
           conditionalPanel(
             condition = "input.fut_explore_dims == 1",
             pickerInput("fut_AC_dim", "Future Vulnerability Dimension",
-              choices = unique(fut_AC_df$name),
+              choices = NULL,
               selected = NULL,
               options = list(`actions-box` = TRUE),
               multiple = TRUE
@@ -644,7 +644,7 @@ server <- function(input, output, session) {
   usr_fut_AC_df <- reactive({
     req(input$proj_year, input$scenario)
     subset(fut_AC_df,
-      year == input$proj_year    &
+      year == input$proj_year &
         projection == input$scenario)
   })
   
@@ -666,16 +666,21 @@ server <- function(input, output, session) {
     } else if (input$fut_ac_weight == "Geometric Mean") {
       ac_index <- indexer(ac_stack, fun = "geometric_mean")
     }
-    names(ac_index) <- 'vulnerabiltiy_index'
+    names(ac_index) <- "vulnerabiltiy_index"
     return(ac_index)
   })
-  
+
+  observeEvent(c(input$proj_year, input$scenario), {
+    updatePickerInput(session = session, inputId = "fut_AC_dim",
+      choices = usr_fut_AC_df()$name)
+  })
+
   fut_region_filled <- reactive({
     req_cols <- c("GID_0", "NAME_0")
     if ("NAME_1" %in% names(fut_final_region())) {
       req_cols <- c("NAME_1", req_cols)
     }
-    if (isTruthy(input$AC_dim)) {
+    if (isTruthy(input$fut_AC_dim)) {
       col_clean_names <- gsub(".*\\.", "", names(fut_final_region()))
       usr_cols <- names(fut_final_region()[col_clean_names %in% input$fut_AC_dim])
       selected_region_data <- fut_final_region()[c(req_cols, usr_cols)]
@@ -729,11 +734,6 @@ server <- function(input, output, session) {
   #       values = FALSE)
   # })
 
-  # filter_rast <- eventReactive(input$crop, {
-  #   req(input$filter_var)
-  #   filter_paths <- filters_df$path[match(input$filter_var, filters_df$name)]
-  #   rast(filter_paths)
-  # })
 
   fut_cropped_rasters <- reactive({
     req(input$fut_AC_dim)
