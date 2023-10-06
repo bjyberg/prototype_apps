@@ -311,7 +311,7 @@ server <- function(input, output, session) {
   })
 
   region_filled <- reactive({
-    req_cols <- c("GID_0", "NAME_0", "sum.population")
+    req_cols <- c("GID_0", "NAME_0", "population", "vop")
     if ("NAME_1" %in% names(final_region())) {
       req_cols <- c("NAME_1", req_cols)
     }
@@ -325,10 +325,10 @@ server <- function(input, output, session) {
     selected_region_data$vulnerability_index <- exact_extract(ac_index(),
       final_region(),
       fun = "mean")
-    pop <- round(selected_region_data[["sum.population"]], 0)
+    pop <- round(selected_region_data[["population"]], 0)
     selected_region_data$population <- pop
-    pop_col <- which(names(selected_region_data) == "sum.population")
-    selected_region_data <- selected_region_data[-pop_col]
+    # pop_col <- which(names(selected_region_data) == "population")
+    # selected_region_data <- selected_region_data[-pop_col]
     return(selected_region_data)
   })
 
@@ -403,7 +403,10 @@ server <- function(input, output, session) {
     #     table_df
     #   }
     # }),
-    st_drop_geometry(region_filled()),
+    expr = ({
+      region_df <- st_drop_geometry(region_filled())
+      rapply(region_df, round, classes = "numeric", how = "replace", digits = 2)
+    }),
     options = list(paging = TRUE,
                    pageLength = 5)
   )
