@@ -9,3 +9,5 @@ ad_cap,mobile_broadband,www/Mobile_Internet_Access_cog.tif,mean,TRUE,Index(0-1)
 ad_cap,education,www/Education_cog.tif,mean,TRUE,Index(0-1)
 hazard,heat_stress,www/HSM_NTx35_mean_year_masked.tiff,NA,NA,days/month
 hazard,drought,www/NDD_mean_year_masked.tiff,NA,NA,days/month
+statistics,population,www/AfriPop-total.tiff,sum,NA,total
+statistics,vop,www/vop.tif,sum,NA,USD
