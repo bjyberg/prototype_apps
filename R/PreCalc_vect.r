@@ -5,6 +5,12 @@ library(exactextractr)
 level <- "adm1" # Name of admin level for file
 countries <- read_sf("www/GADM_adm1.gpkg")[c(1:4)]
 country_isos <- unique(countries$GID_0)
+coutry_names <- unique(countries$NAME_0)
+country_df <- data.frame('GID_0' = country_isos, 'NAME_0' = coutry_names)
+countries <- read_sf("atlas_ocha_ADM1.gpkg")[c(1,4)]
+countries <- countries[countries$shapeGroup %in% country_isos, ]
+names(countries) <- c("NAME_1", "GID_0", "geom") #  to match old gadm names
+countries$NAME_0 <- country_df$NAME_0[match(countries$GID_0, country_df$GID_0)]
 # level <- 'adm0' # Name of admin level for file
 # countries <- st_make_valid(st_as_sf(geodata::world(path = tempdir())))
 # sf_use_s2(FALSE) # fixes a known issue with S2 geoms sometimes
@@ -15,7 +21,7 @@ AC_df <- subset(file_dict, group == "ad_cap" | group == "statistics")
 
 mean_rasts <- rast(AC_df[AC_df$fn == "mean", "path"])
 names(mean_rasts) <- AC_df[AC_df$fn == "mean", "name"]
-
+ 
 country_means <- exact_extract(mean_rasts, countries, c("mean")) |>
   cbind(countries) |>
   st_as_sf()
@@ -74,9 +80,13 @@ write_sf(full_country_data,
 
 # Now for admin 0
 
-level <- 'adm0' # Name of admin level for file
-countries <- st_make_valid(st_as_sf(geodata::world(path = tempdir())))
-countries <- countries[countries$GID_0 %in% country_isos, ]
+level <- "adm0" # Name of admin level for file
+countries <- read_sf("atlas_ocha_ADM0.gpkg")[c(1, 4)]
+countries <- countries[countries$shapeGroup %in% country_isos, ]
+names(countries) <- c("NAME_0", "GID_0", "geom") #  to match old gadm names
+countries$NAME_0 <- country_df$NAME_0[match(countries$GID_0, country_df$GID_0)] #make names match
+# countries <- st_make_valid(st_as_sf(geodata::world(path = tempdir())))
+# countries <- countries[countries$GID_0 %in% country_isos, ]
 # sf_use_s2(FALSE) # fixes a known issue with S2 geoms sometimes
 
 mean_rasts <- rast(AC_df[AC_df$fn == "mean", "path"])
@@ -116,6 +126,9 @@ region_df <- rbind(data.frame(), region_total)
 names(region_df) <- names(st_drop_geometry(full_country_data))
 full_region <- merge(area, region_df) |>
   st_as_sf()
+st_geometry(full_region) <- "geom"
+
+names(full_country_data)
 full_country_data <- rbind(full_country_data, full_region) |>
   st_as_sf()
 

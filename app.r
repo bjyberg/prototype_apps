@@ -325,6 +325,7 @@ server <- function(input, output, session) {
     selected_region_data$vulnerability_index <- exact_extract(ac_index(),
       final_region(),
       fun = "mean")
+    selected_region_data[["population"]] <- as.numeric(selected_region_data[["population"]])
     pop <- round(selected_region_data[["population"]], 0)
     selected_region_data$population <- pop
     # pop_col <- which(names(selected_region_data) == "population")
